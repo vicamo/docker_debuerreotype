@@ -6,10 +6,15 @@ source "$thisDir/.constants.sh" \
 	'[--arch=<dpkgArch>] <target-dir> <suite> <timestamp>' \
 	'rootfs stretch 2017-05-08T00:00:00Z'
 
-before=()
-while [ $# -gt 0 ] && [[ "$1" == -* ]]; do
-	before+=( "$1" )
-	shift
+options="$(getopt -n "$self" -o '' --long 'arch:' -- "$@")" || eusage
+eval "set -- $options"
+arch=
+while true; do
+	flag="$1"; shift
+	case "$flag" in
+		--arch) arch="$1"; shift ;;
+		--) break ;;
+	esac
 done
 
 targetDir="${1:-}"; shift || eusage 'missing target-dir'
@@ -35,7 +40,7 @@ ${DEBOOTSTRAP} \
 	--force-check-gpg \
 	--merged-usr \
 	--variant=minbase \
-	"${before[@]}" \
+	${arch:+--arch=$arch} \
 	"$suite" "$targetDir" "$mirror"
 echo "$epoch" > "$targetDir/debuerreotype-epoch"
 
