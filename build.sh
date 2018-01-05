@@ -4,6 +4,7 @@ set -Eeuo pipefail
 thisDir="$(dirname "$(readlink -f "$BASH_SOURCE")")"
 source "$thisDir/scripts/.constants.sh" \
 	--flags 'no-build,codename-copy' \
+	--flags 'arch:' \
 	-- \
 	'[--no-build] [--codename-copy] <output-dir> <suite> <timestamp>' \
 	'output stretch 2017-05-08T00:00:00Z
@@ -18,6 +19,7 @@ while true; do
 	case "$flag" in
 		--no-build) build= ;; # for skipping "docker build"
 		--codename-copy) codenameCopy=1 ;; # for copying a "stable.tar.xz" to "stretch.tar.xz" with updated sources.list (saves a lot of extra building work)
+		--arch) dpkgArch="$1" ; shift ;; # for specifying which debian arch to build
 		--) break ;;
 		*) eusage "unknown flag '$flag'" ;;
 	esac
@@ -54,13 +56,15 @@ docker run \
 	-e timestamp="$timestamp" \
 	-e codenameCopy="$codenameCopy" \
 	-e TZ='UTC' -e LC_ALL='C' \
+	${dpkgArch:+-e dpkgArch="$dpkgArch"} \
 	"$dockerImage" \
 	bash -Eeuo pipefail -c '
 		set -x
 
 		epoch="$(date --date "$timestamp" +%s)"
 		serial="$(date --date "@$epoch" +%Y%m%d)"
-		dpkgArch="$(dpkg --print-architecture)"
+		currentArch="$(dpkg --print-architecture)"
+		dpkgArch="${dpkgArch:=$currentArch}"
 
 		exportDir="output"
 		outputDir="$exportDir/$serial/$dpkgArch/$suite"
@@ -111,6 +115,9 @@ docker run \
 					initArgs+=( --no-merged-usr )
 					;;
 			esac
+			if [ "$dpkgArch" != "$currentArch" ]; then
+				initArgs+=( --debootstrap qemu-debootstrap --arch $dpkgArch )
+			fi
 
 			debuerreotype-init "${initArgs[@]}" rootfs "$suite" "@$epoch"
 
@@ -145,13 +152,17 @@ docker run \
 				local suite="$1"; shift
 				local variant="$1"; shift
 
+				local tarArgs=( )
+				if [ "$dpkgArch" != "$currentArch" ]; then
+					tarArgs+=( --exclude "./usr/bin/qemu-*-static" )
+				fi
+
 				# make a copy of the snapshot-facing sources.list file before we overwrite it
 				cp "$rootfs/etc/apt/sources.list" "$targetBase.sources-list-snapshot"
 				touch_epoch "$targetBase.sources-list-snapshot"
 
 				if [ "$variant" != "sbuild" ]; then
 					debuerreotype-gen-sources-list "$rootfs" "$suite" http://deb.debian.org/debian http://security.debian.org
-					debuerreotype-tar "$rootfs" "$targetBase.tar.xz"
 				else
 					# sbuild needs "deb-src" entries
 					debuerreotype-gen-sources-list --deb-src "$rootfs" "$suite" http://deb.debian.org/debian http://security.debian.org
@@ -166,8 +177,10 @@ docker run \
 
 					# schroot is picky about "/dev" (which is excluded by default in "debuerreotype-tar")
 					# see https://github.com/debuerreotype/debuerreotype/pull/8#issuecomment-305855521
-					debuerreotype-tar --include-dev "$rootfs" "$targetBase.tar.xz"
+					tarArgs+=( --include-dev )
 				fi
+
+				debuerreotype-tar "${tarArgs[@]}" "$rootfs" "$targetBase.tar.xz"
 				du -hsx "$targetBase.tar.xz"
 
 				sha256sum "$targetBase.tar.xz" | cut -d" " -f1 > "$targetBase.tar.xz.sha256"
