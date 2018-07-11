@@ -78,6 +78,9 @@ if [ -n "$qemu" ]; then
 		RUN (echo "deb http://deb.debian.org/debian testing main" | tee /etc/apt/sources.list.d/testing.list) \\
 			&& apt-get update && apt-get install -y --no-install-recommends \\
 				qemu-user-static \\
+			&& sed -e 's,\\(alpha|arm.*\\))$,hppa|\\1),' \\
+				-e 's,powerpc|powerpcspe),powerpc)\\n    qemu_arch="ppc"\\n  ;;\\n  powerpcspe)\\n    export QEMU_CPU=e500v2,' \\
+				-i /usr/sbin/qemu-debootstrap \\
 			&& rm /etc/apt/sources.list.d/testing.list \\
 			&& rm -rf /var/lib/apt/lists/*
 	EODF
@@ -94,6 +97,7 @@ docker run \
 	-e codenameCopy="$codenameCopy" \
 	-e eol="$eol" -e arch="$arch" -e qemu="$qemu" -e ports="$ports" \
 	-e include="$include" -e exclude="$exclude" \
+	${QEMU_CPU:+-e QEMU_CPU="${QEMU_CPU}"} \
 	-e TZ='UTC' -e LC_ALL='C' \
 	--hostname debuerreotype \
 	"$dockerImage" \
