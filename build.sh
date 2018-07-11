@@ -4,20 +4,24 @@ set -Eeuo pipefail
 thisDir="$(dirname "$(readlink -f "$BASH_SOURCE")")"
 source "$thisDir/scripts/.constants.sh" \
 	--flags 'no-build,codename-copy' \
-	--flags 'eol,arch:,qemu' \
+	--flags 'eol,arch:,qemu,ports,include:,exclude:' \
 	-- \
-	'[--no-build] [--codename-copy] [--eol] [--arch=<arch>] [--qemu] <output-dir> <suite> <timestamp>' \
+	'[--no-build] [--codename-copy] [--eol] [--arch=<arch>] [--qemu] [--ports] <output-dir> <suite> <timestamp>' \
 	'output stretch 2017-05-08T00:00:00Z
 --codename-copy output stable 2017-05-08T00:00:00Z
 --eol output squeeze 2016-03-14T00:00:00Z
---eol --arch i386 output sarge 2016-03-14T00:00:00Z' \
+--eol --arch i386 output sarge 2016-03-14T00:00:00Z
+--ports --arch sh4 output sid 2016-03-14T00:00:00Z' \
 
 eval "$dgetopt"
 build=1
 codenameCopy=
 eol=
+ports=
 arch=
 qemu=
+include=
+exclude=
 while true; do
 	flag="$1"; shift
 	dgetopt-case "$flag"
@@ -25,12 +29,19 @@ while true; do
 		--no-build) build= ;; # for skipping "docker build"
 		--codename-copy) codenameCopy=1 ;; # for copying a "stable.tar.xz" to "stretch.tar.xz" with updated sources.list (saves a lot of extra building work)
 		--eol) eol=1 ;; # for using "archive.debian.org"
+		--ports) ports=1 ;; # for using "deb.debian.org/debian-ports"
 		--arch) arch="$1"; shift ;; # for adding "--arch" to debuerreotype-init
 		--qemu) qemu=1 ;; # for using "qemu-debootstrap"
+		--include) include="${include:+$include,}$1"; shift ;;
+		--exclude) exclude="${exclude:+$exclude,}$1"; shift ;;
 		--) break ;;
 		*) eusage "unknown flag '$flag'" ;;
 	esac
 done
+
+if [ -n "$ports" ]; then
+	include="${include:+$include,}debian-archive-keyring,debian-ports-archive-keyring";
+fi
 
 outputDir="${1:-}"; shift || eusage 'missing output-dir'
 suite="${1:-}"; shift || eusage 'missing suite'
@@ -77,7 +88,8 @@ docker run \
 	-e suite="$suite" \
 	-e timestamp="$timestamp" \
 	-e codenameCopy="$codenameCopy" \
-	-e eol="$eol" -e arch="$arch" -e qemu="$qemu" \
+	-e eol="$eol" -e arch="$arch" -e qemu="$qemu" -e ports="$ports" \
+	-e include="$include" -e exclude="$exclude" \
 	-e TZ='UTC' -e LC_ALL='C' \
 	--hostname debuerreotype \
 	"$dockerImage" \
@@ -101,7 +113,9 @@ docker run \
 		debuerreotypeScriptsDir="$(dirname "$(readlink -f "$(which debuerreotype-init)")")"
 
 		for archive in "" security; do
-			if [ -z "$eol" ]; then
+			if [ -n "$ports" ]; then
+				snapshotUrl="http://deb.debian.org/debian-ports"
+			elif [ -z "$eol" ]; then
 				snapshotUrl="$("$debuerreotypeScriptsDir/.snapshot-url.sh" "@$epoch" "${archive:+debian-${archive}}")"
 			else
 				snapshotUrl="$("$debuerreotypeScriptsDir/.snapshot-url.sh" "@$epoch" "debian-archive")/debian${archive:+-${archive}}"
@@ -112,7 +126,9 @@ docker run \
 			touch_epoch "$snapshotUrlFile"
 		done
 
-		if [ -z "$eol" ]; then
+		if [ -n "$ports" ]; then
+			keyring=/usr/share/keyrings/debian-ports-archive-keyring.gpg
+		elif [ -z "$eol" ]; then
 			keyring=/usr/share/keyrings/debian-archive-keyring.gpg
 		else
 			keyring=/usr/share/keyrings/debian-archive-removed-keys.gpg
@@ -146,7 +162,9 @@ docker run \
 
 		{
 			initArgs=( --arch="$dpkgArch" )
-			if [ -z "$eol" ]; then
+			if [ -n "$ports" ]; then
+				initArgs+=( --debian-ports )
+			elif [ -z "$eol" ]; then
 				initArgs+=( --debian )
 			else
 				initArgs+=( --debian-eol )
@@ -163,6 +181,12 @@ docker run \
 
 			if [ -n "$qemu" ]; then
 				initArgs+=( --debootstrap="qemu-debootstrap" )
+			fi
+			if [ -n "$include" ]; then
+				initArgs+=( --include="$include")
+			fi
+			if [ -n "$exclude" ]; then
+				initArgs+=( --exclude="$exclude")
 			fi
 
 			debuerreotype-init "${initArgs[@]}" rootfs "$suite" "@$epoch"
@@ -221,7 +245,10 @@ docker run \
 				touch_epoch "$targetBase.sources-list-snapshot"
 
 				local mirror secmirror
-				if [ -z "$eol" ]; then
+				if [ -n "$ports" ]; then
+					mirror="http://deb.debian.org/debian-ports"
+					secmirror="http://security.debian.org/debian-security"
+				elif [ -z "$eol" ]; then
 					mirror="http://deb.debian.org/debian"
 					secmirror="http://security.debian.org/debian-security"
 				else

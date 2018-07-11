@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 thisDir="$(dirname "$(readlink -f "$BASH_SOURCE")")"
 source "$thisDir/.constants.sh" \
-	--flags 'debian,debian-eol,non-debian' \
+	--flags 'debian,debian-eol,debian-ports,non-debian' \
 	--flags 'debootstrap:' \
 	--flags 'debootstrap-script:' \
 	--flags 'keyring:,arch:,include:,exclude:' \
@@ -19,6 +19,7 @@ source "$thisDir/.constants.sh" \
 eval "$dgetopt"
 nonDebian=
 debianEol=
+debianPorts=
 debootstrap=
 script=
 keyring=
@@ -30,9 +31,10 @@ while true; do
 	flag="$1"; shift
 	dgetopt-case "$flag"
 	case "$flag" in
-		--debian)     nonDebian= ; debianEol=  ;;
-		--debian-eol) nonDebian= ; debianEol=1 ;;
-		--non-debian) nonDebian=1; debianEol=  ;;
+		--debian)       nonDebian= ; debianEol= ; debianPorts= ;;
+		--debian-eol)   nonDebian= ; debianEol=1; debianPorts= ;;
+		--debian-ports) nonDebian= ; debianEol= ; debianPorts=1 ;;
+		--non-debian)   nonDebian=1; debianEol= ; debianPorts= ;;
 		--debootstrap) debootstrap="$1"; shift ;;
 		--debootstrap-script) script="$1"; shift ;;
 		--keyring) keyring="$1"; shift ;;
@@ -70,7 +72,10 @@ epoch="$(date --date "$timestamp" '+%s')"
 export SOURCE_DATE_EPOCH="$epoch"
 
 if [ -z "$nonDebian" ]; then
-	if [ -z "$debianEol" ]; then
+	if [ -n "$debianPorts" ]; then
+		mirror="http://deb.debian.org/debian-ports"
+		secmirror="http://deb.debian.org/no-security-updates-for-debian-ports"
+	elif [ -z "$debianEol" ]; then
 		mirror="$("$thisDir/.snapshot-url.sh" "@$epoch")"
 		secmirror="$("$thisDir/.snapshot-url.sh" "@$epoch" 'debian-security')"
 	else

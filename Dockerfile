@@ -17,6 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		xz-utils \
 		\
 		gnupg dirmngr \
+	&& (echo "deb http://deb.debian.org/debian unstable main" | tee /etc/apt/sources.list.d/unstable.list) \
+	&& apt-get update && apt-get install -y --no-install-recommends \
+		debian-ports-archive-keyring/unstable \
+	&& rm /etc/apt/sources.list.d/unstable.list \
 	&& rm -rf /var/lib/apt/lists/*
 
 # see ".dockerignore"
