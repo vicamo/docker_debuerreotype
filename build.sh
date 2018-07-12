@@ -75,7 +75,11 @@ dockerImage="debuerreotype/debuerreotype:$ver"
 if [ -n "$qemu" ]; then
 	[ -z "$build" ] || docker build -t "$dockerImage-qemu" - <<-EODF
 		FROM $dockerImage
-		RUN apt-get update && apt-get install -y --no-install-recommends qemu-user-static && rm -rf /var/lib/apt/lists/*
+		RUN (echo "deb http://deb.debian.org/debian testing main" | tee /etc/apt/sources.list.d/testing.list) \\
+			&& apt-get update && apt-get install -y --no-install-recommends \\
+				qemu-user-static \\
+			&& rm /etc/apt/sources.list.d/testing.list \\
+			&& rm -rf /var/lib/apt/lists/*
 	EODF
 	dockerImage="$dockerImage-qemu"
 fi
