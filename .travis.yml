@@ -20,6 +20,10 @@ env:
     - SUITE=stable    CODENAME= TIMESTAMP="today 00:00:00" SHA256=
     - SUITE=oldstable CODENAME= TIMESTAMP="today 00:00:00" SHA256=
 
+branches:
+    only:
+        - master
+
 addons:
     apt:
         packages:
