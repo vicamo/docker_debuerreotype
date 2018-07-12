@@ -15,6 +15,8 @@ env:
     - SUITE=eol CODENAME=woody ARCH=i386 TIMESTAMP=2017-01-01T00:00:00Z SHA256=fd6d9fe8da1a695c5a0b9880b72a9d14929bdd57ed54daff86c01addb31b984d
     # qemu-debootstrap testing
     - ARCH=arm64 SUITE=jessie CODENAME= TIMESTAMP=2017-01-01T00:00:00Z SHA256=414598a463c930ea5ebc5b3ecdfeafdf742c0fc8f564f1951a319cfe389b2cc2
+    # Debian-Ports testing
+    - SUITE=ports CODENAME=sid ARCH=alpha TIMESTAMP="today 00:00:00" SHA256=
     # a few entries for "today" to try and catch issues like https://github.com/debuerreotype/debuerreotype/issues/41 sooner
     - SUITE=unstable  CODENAME= TIMESTAMP="today 00:00:00" SHA256=
     - SUITE=stable    CODENAME= TIMESTAMP="today 00:00:00" SHA256=

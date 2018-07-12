@@ -8,6 +8,9 @@ buildArgs=()
 if [ "$SUITE" = 'eol' ]; then
 	buildArgs+=( '--eol' )
 	SUITE="$CODENAME"
+elif [ "$SUITE" = 'ports' ]; then
+	buildArgs+=( '--ports' )
+	SUITE="$CODENAME"
 elif [ -n "${CODENAME:-}" ]; then
 	buildArgs+=( '--codename-copy' )
 fi
