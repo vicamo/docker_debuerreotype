@@ -181,13 +181,11 @@ docker run \
 			fi
 			initArgs+=( --keyring "$keyring" )
 
-			releaseSuite="$(awk -F ": " "\$1 == \"Suite\" { print \$2; exit }" "$outputDir/Release")"
-			case "$releaseSuite" in
-				# see https://bugs.debian.org/src:usrmerge for why merged-usr should not be in stable yet (mostly "dpkg" related bugs)
-				*oldstable|stable)
-					initArgs+=( --no-merged-usr )
-					;;
-			esac
+			# disable merged-usr (for now?) due to the following compelling arguments:
+			#  - https://bugs.debian.org/src:usrmerge ("dpkg-query" breaks, etc)
+			#  - https://bugs.debian.org/914208 ("buildd" variant disables merged-usr still)
+			#  - https://github.com/debuerreotype/docker-debian-artifacts/issues/60#issuecomment-461426406
+			initArgs+=( --no-merged-usr )
 
 			if [ -n "$qemu" ]; then
 				initArgs+=( --debootstrap="qemu-debootstrap" )
@@ -220,16 +218,11 @@ docker run \
 			done
 
 			# prefer iproute2 if it exists
-			case "$aptVersion" in
-				0.5.*) iproute=iproute ;; # --debian-eol woody and below have bad apt-cache which only warns for missing packages
-				*)
-					iproute=iproute2
-					if ! debuerreotype-chroot rootfs apt-cache show iproute2 > /dev/null; then
-						# poor wheezy
-						iproute=iproute
-					fi
-					;;
-			esac
+			iproute=iproute2
+			if ! debuerreotype-chroot rootfs apt-get install -qq -s iproute2 &> /dev/null; then
+				# poor wheezy
+				iproute=iproute
+			fi
 			ping=iputils-ping
 			if debuerreotype-chroot rootfs bash -c "command -v ping > /dev/null"; then
 				# if we already have "ping" (as in --debian-eol potato), skip installing any extra ping package
