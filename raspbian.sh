@@ -68,8 +68,6 @@ docker run \
 		exportDir="output"
 		outputDir="$exportDir/raspbian/$dpkgArch/$suite"
 
-		debuerreotypeScriptsDir="$(dirname "$(readlink -f "$(which debuerreotype-init)")")"
-
 		mkdir -p "$outputDir"
 		wget -O "$outputDir/Release.gpg" "$mirror/dists/$suite/Release.gpg"
 		wget -O "$outputDir/Release" "$mirror/dists/$suite/Release"
@@ -82,6 +80,7 @@ docker run \
 			debuerreotype-init --non-debian \
 				--arch "$dpkgArch" \
 				--keyring /usr/share/keyrings/raspbian-archive-keyring.gpg \
+				--no-merged-usr \
 				rootfs "$suite" "$mirror"
 
 			epoch="$(< rootfs/debuerreotype-epoch)"
@@ -104,7 +103,7 @@ docker run \
 
 			# prefer iproute2 if it exists
 			iproute=iproute2
-			if ! debuerreotype-chroot rootfs apt-cache show iproute2 > /dev/null; then
+			if ! debuerreotype-chroot rootfs apt-get install -qq -s iproute2 &> /dev/null; then
 				# poor wheezy
 				iproute=iproute
 			fi

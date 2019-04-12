@@ -136,19 +136,19 @@ docker run \
 			touch_epoch "$snapshotUrlFile"
 		done
 
-		if [ -n "$ports" ]; then
-			keyring=/usr/share/keyrings/debian-ports-archive-keyring.gpg
-		elif [ -z "$eol" ]; then
-			keyring=/usr/share/keyrings/debian-archive-keyring.gpg
+		export GNUPGHOME="$(mktemp -d)"
+		keyring="$GNUPGHOME/debian-archive-$suite-keyring.gpg"
+		if [ "$suite" = potato ]; then
+			# src:debian-archive-keyring was created in 2006, thus does not include a key for potato
+			gpg --batch --no-default-keyring --keyring "$keyring" \
+				--keyserver ha.pool.sks-keyservers.net \
+				--recv-keys 8FD47FF1AA9372C37043DC28AA7DEB7B722F1AED
 		else
-			keyring=/usr/share/keyrings/debian-archive-removed-keys.gpg
-
-			if [ "$suite" = potato ]; then
-				# src:debian-archive-keyring was created in 2006, thus does not include a key for potato
-				export GNUPGHOME="$(mktemp -d)"
-				keyring="$GNUPGHOME/debian-archive-$suite-keyring.gpg"
-				gpg --no-default-keyring --keyring "$keyring" --keyserver ha.pool.sks-keyservers.net --recv-keys 8FD47FF1AA9372C37043DC28AA7DEB7B722F1AED
-			fi
+			# check against all releases (ie, combine both "debian-archive-keyring.gpg" and "debian-archive-removed-keys.gpg"), since we cannot really know whether the target release became EOL later than the snapshot date we are targeting
+			gpg --batch --no-default-keyring --keyring "$keyring" --import \
+				$([ -z "$ports" ] || echo /usr/share/keyrings/debian-ports-archive-keyring.gpg) \
+				/usr/share/keyrings/debian-archive-keyring.gpg \
+				/usr/share/keyrings/debian-archive-removed-keys.gpg
 		fi
 
 		snapshotUrl="$(< "$exportDir/$serial/$dpkgArch/snapshot-url")"
@@ -181,13 +181,11 @@ docker run \
 			fi
 			initArgs+=( --keyring "$keyring" )
 
-			releaseSuite="$(awk -F ": " "\$1 == \"Suite\" { print \$2; exit }" "$outputDir/Release")"
-			case "$releaseSuite" in
-				# see https://bugs.debian.org/src:usrmerge for why merged-usr should not be in stable yet (mostly "dpkg" related bugs)
-				*oldstable|stable)
-					initArgs+=( --no-merged-usr )
-					;;
-			esac
+			# disable merged-usr (for now?) due to the following compelling arguments:
+			#  - https://bugs.debian.org/src:usrmerge ("dpkg-query" breaks, etc)
+			#  - https://bugs.debian.org/914208 ("buildd" variant disables merged-usr still)
+			#  - https://github.com/debuerreotype/docker-debian-artifacts/issues/60#issuecomment-461426406
+			initArgs+=( --no-merged-usr )
 
 			if [ -n "$qemu" ]; then
 				initArgs+=( --debootstrap="qemu-debootstrap" )
@@ -220,16 +218,11 @@ docker run \
 			done
 
 			# prefer iproute2 if it exists
-			case "$aptVersion" in
-				0.5.*) iproute=iproute ;; # --debian-eol woody and below have bad apt-cache which only warns for missing packages
-				*)
-					iproute=iproute2
-					if ! debuerreotype-chroot rootfs apt-cache show iproute2 > /dev/null; then
-						# poor wheezy
-						iproute=iproute
-					fi
-					;;
-			esac
+			iproute=iproute2
+			if ! debuerreotype-chroot rootfs apt-get install -qq -s iproute2 &> /dev/null; then
+				# poor wheezy
+				iproute=iproute
+			fi
 			ping=iputils-ping
 			if debuerreotype-chroot rootfs bash -c "command -v ping > /dev/null"; then
 				# if we already have "ping" (as in --debian-eol potato), skip installing any extra ping package
@@ -265,6 +258,8 @@ docker run \
 					mirror="http://archive.debian.org/debian"
 					secmirror="http://archive.debian.org/debian-security"
 				fi
+				checkmirror="$(< "$exportDir/$serial/$dpkgArch/snapshot-url")"
+				checksecmirror="$(< "$exportDir/$serial/$dpkgArch/snapshot-url-security")"
 
 				local tarArgs=()
 				if [ -n "$qemu" ]; then
@@ -272,10 +267,10 @@ docker run \
 				fi
 
 				if [ "$variant" != "sbuild" ]; then
-					debuerreotype-gen-sources-list "$rootfs" "$suite" "$mirror" "$secmirror"
+					debuerreotype-gen-sources-list "$rootfs" "$suite" "$mirror" "$secmirror" "$checkmirror" "$checksecmirror"
 				else
 					# sbuild needs "deb-src" entries
-					debuerreotype-gen-sources-list --deb-src "$rootfs" "$suite" "$mirror" "$secmirror"
+					debuerreotype-gen-sources-list --deb-src "$rootfs" "$suite" "$mirror" "$secmirror" "$checkmirror" "$checksecmirror"
 
 					# APT has odd issues with "Acquire::GzipIndexes=false" + "file://..." sources sometimes
 					# (which are used in sbuild for "--extra-package")
@@ -297,7 +292,7 @@ docker run \
 				touch_epoch "$targetBase.tar.xz.sha256"
 
 				debuerreotype-chroot "$rootfs" bash -c "
-					if ! dpkg-query -W; then
+					if ! dpkg-query -W &> /dev/null; then
 						# --debian-eol woody has no dpkg-query
 						dpkg -l
 					fi
