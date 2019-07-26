@@ -124,7 +124,7 @@ docker run \
 
 		for archive in "" security; do
 			if [ -n "$ports" ]; then
-				snapshotUrl="http://deb.debian.org/debian-ports"
+				snapshotUrl="$("$debuerreotypeScriptsDir/.snapshot-url.sh" "@$epoch" "debian-ports")"
 			elif [ -z "$eol" ]; then
 				snapshotUrl="$("$debuerreotypeScriptsDir/.snapshot-url.sh" "@$epoch" "${archive:+debian-${archive}}")"
 			else
@@ -219,7 +219,7 @@ docker run \
 
 			# prefer iproute2 if it exists
 			iproute=iproute2
-			if ! debuerreotype-chroot rootfs apt-get install -qq -s iproute2 &> /dev/null; then
+			if ! debuerreotype-apt-get rootfs install -qq -s iproute2 &> /dev/null; then
 				# poor wheezy
 				iproute=iproute
 			fi
@@ -247,30 +247,16 @@ docker run \
 				cp "$rootfs/etc/apt/sources.list" "$targetBase.sources-list-snapshot"
 				touch_epoch "$targetBase.sources-list-snapshot"
 
-				local mirror secmirror
-				if [ -n "$ports" ]; then
-					mirror="http://deb.debian.org/debian-ports"
-					secmirror="http://security.debian.org/debian-security"
-				elif [ -z "$eol" ]; then
-					mirror="http://deb.debian.org/debian"
-					secmirror="http://security.debian.org/debian-security"
-				else
-					mirror="http://archive.debian.org/debian"
-					secmirror="http://archive.debian.org/debian-security"
-				fi
-				checkmirror="$(< "$exportDir/$serial/$dpkgArch/snapshot-url")"
-				checksecmirror="$(< "$exportDir/$serial/$dpkgArch/snapshot-url-security")"
-
 				local tarArgs=()
 				if [ -n "$qemu" ]; then
 					tarArgs+=( --exclude="./usr/bin/qemu-*-static" )
 				fi
 
 				if [ "$variant" != "sbuild" ]; then
-					debuerreotype-gen-sources-list "$rootfs" "$suite" "$mirror" "$secmirror" "$checkmirror" "$checksecmirror"
+					debuerreotype-debian-sources-list ${eol:+--eol} ${ports:+--ports} "$rootfs" "$suite"
 				else
 					# sbuild needs "deb-src" entries
-					debuerreotype-gen-sources-list --deb-src "$rootfs" "$suite" "$mirror" "$secmirror" "$checkmirror" "$checksecmirror"
+					debuerreotype-debian-sources-list --deb-src ${eol:+--eol} ${ports:+--ports} "$rootfs" "$suite"
 
 					# APT has odd issues with "Acquire::GzipIndexes=false" + "file://..." sources sometimes
 					# (which are used in sbuild for "--extra-package")
@@ -342,7 +328,7 @@ docker run \
 					targetBase="$variantDir/rootfs"
 
 					# point sources.list back at snapshot.debian.org temporarily (but this time pointing at $codename instead of $suite)
-					debuerreotype-gen-sources-list "$rootfs" "$codename" "$(< "$exportDir/$serial/$dpkgArch/snapshot-url")" "$(< "$exportDir/$serial/$dpkgArch/snapshot-url-security")"
+					debuerreotype-debian-sources-list --snapshot ${eol:+--eol} ${ports:+--ports} "$rootfs" "$codename"
 
 					create_artifacts "$targetBase" "$rootfs" "$codename" "$variant"
 				done
