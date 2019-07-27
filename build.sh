@@ -124,7 +124,7 @@ docker run \
 
 		for archive in "" security; do
 			if [ -n "$ports" ]; then
-				snapshotUrl="http://deb.debian.org/debian-ports"
+				snapshotUrl="$("$debuerreotypeScriptsDir/.snapshot-url.sh" "@$epoch" "debian-ports")"
 			elif [ -z "$eol" ]; then
 				snapshotUrl="$("$debuerreotypeScriptsDir/.snapshot-url.sh" "@$epoch" "${archive:+debian-${archive}}")"
 			else
@@ -199,17 +199,28 @@ docker run \
 
 			debuerreotype-init "${initArgs[@]}" rootfs "$suite" "@$epoch"
 
+			if [ -n "$eol" ]; then
+				debuerreotype-gpgv-ignore-expiration-config rootfs
+			fi
+
 			debuerreotype-minimizing-config rootfs
 			debuerreotype-apt-get rootfs update -qq
 			debuerreotype-apt-get rootfs dist-upgrade -yqq
 
 			aptVersion="$("$debuerreotypeScriptsDir/.apt-version.sh" rootfs)"
-			case "$aptVersion" in
+			if dpkg --compare-versions "$aptVersion" ">=" "0.7.14~"; then
+				# https://salsa.debian.org/apt-team/apt/commit/06d79436542ccf3e9664306da05ba4c34fba4882
+				noInstallRecommends="--no-install-recommends"
+			else
 				# --debian-eol etch and lower do not support --no-install-recommends
-				0.6.*|0.5.*) noInstallRecommends="-o APT::Install-Recommends=0" ;;
+				noInstallRecommends="-o APT::Install-Recommends=0"
+			fi
 
-				*) noInstallRecommends="--no-install-recommends" ;;
-			esac
+			if [ -n "$eol" ] && dpkg --compare-versions "$aptVersion" ">=" "0.7.26~"; then
+				# https://salsa.debian.org/apt-team/apt/commit/1ddb859611d2e0f3d9ea12085001810f689e8c99
+				echo "Acquire::Check-Valid-Until \"false\";" > rootfs/etc/apt/apt.conf.d/check-valid-until.conf
+				# TODO make this a real script so it can have a nice comment explaining why we do it for EOL releases?
+			fi
 
 			# make a couple copies of rootfs so we can create other variants
 			for variant in slim sbuild; do
@@ -219,7 +230,7 @@ docker run \
 
 			# prefer iproute2 if it exists
 			iproute=iproute2
-			if ! debuerreotype-chroot rootfs apt-get install -qq -s iproute2 &> /dev/null; then
+			if ! debuerreotype-apt-get rootfs install -qq -s iproute2 &> /dev/null; then
 				# poor wheezy
 				iproute=iproute
 			fi
@@ -247,30 +258,16 @@ docker run \
 				cp "$rootfs/etc/apt/sources.list" "$targetBase.sources-list-snapshot"
 				touch_epoch "$targetBase.sources-list-snapshot"
 
-				local mirror secmirror
-				if [ -n "$ports" ]; then
-					mirror="http://deb.debian.org/debian-ports"
-					secmirror="http://security.debian.org/debian-security"
-				elif [ -z "$eol" ]; then
-					mirror="http://deb.debian.org/debian"
-					secmirror="http://security.debian.org/debian-security"
-				else
-					mirror="http://archive.debian.org/debian"
-					secmirror="http://archive.debian.org/debian-security"
-				fi
-				checkmirror="$(< "$exportDir/$serial/$dpkgArch/snapshot-url")"
-				checksecmirror="$(< "$exportDir/$serial/$dpkgArch/snapshot-url-security")"
-
 				local tarArgs=()
 				if [ -n "$qemu" ]; then
 					tarArgs+=( --exclude="./usr/bin/qemu-*-static" )
 				fi
 
 				if [ "$variant" != "sbuild" ]; then
-					debuerreotype-gen-sources-list "$rootfs" "$suite" "$mirror" "$secmirror" "$checkmirror" "$checksecmirror"
+					debuerreotype-debian-sources-list ${eol:+--eol} ${ports:+--ports} "$rootfs" "$suite"
 				else
 					# sbuild needs "deb-src" entries
-					debuerreotype-gen-sources-list --deb-src "$rootfs" "$suite" "$mirror" "$secmirror" "$checkmirror" "$checksecmirror"
+					debuerreotype-debian-sources-list --deb-src ${eol:+--eol} ${ports:+--ports} "$rootfs" "$suite"
 
 					# APT has odd issues with "Acquire::GzipIndexes=false" + "file://..." sources sometimes
 					# (which are used in sbuild for "--extra-package")
@@ -285,6 +282,28 @@ docker run \
 					tarArgs+=( --include-dev )
 				fi
 
+				case "$suite" in
+					sarge)
+						# for some reason, sarge creates "/var/cache/man/index.db" with some obvious embedded unix timestamps (but if we exclude it, "man" still works properly, so *shrug*)
+						tarArgs+=( --exclude ./var/cache/man/index.db )
+						;;
+
+					woody)
+						# woody not only contains "exim", but launches it during our build process and tries to email "root@debuerreotype" (which fails and creates non-reproducibility)
+						tarArgs+=( --exclude ./var/spool/exim --exclude ./var/log/exim )
+						;;
+
+					potato)
+						tarArgs+=(
+							# for some reason, pototo leaves a core dump (TODO figure out why??)
+							--exclude "./core"
+							--exclude "./qemu*.core"
+							# also, it leaves some junk in /tmp (/tmp/fdmount.conf.tmp.XXX)
+							--exclude "./tmp/fdmount.conf.tmp.*"
+						)
+						;;
+				esac
+
 				debuerreotype-tar "${tarArgs[@]}" "$rootfs" "$targetBase.tar.xz"
 				du -hsx "$targetBase.tar.xz"
 
@@ -292,7 +311,7 @@ docker run \
 				touch_epoch "$targetBase.tar.xz.sha256"
 
 				debuerreotype-chroot "$rootfs" bash -c "
-					if ! dpkg-query -W &> /dev/null; then
+					if ! dpkg-query -W 2> /dev/null; then
 						# --debian-eol woody has no dpkg-query
 						dpkg -l
 					fi
@@ -342,7 +361,7 @@ docker run \
 					targetBase="$variantDir/rootfs"
 
 					# point sources.list back at snapshot.debian.org temporarily (but this time pointing at $codename instead of $suite)
-					debuerreotype-gen-sources-list "$rootfs" "$codename" "$(< "$exportDir/$serial/$dpkgArch/snapshot-url")" "$(< "$exportDir/$serial/$dpkgArch/snapshot-url-security")"
+					debuerreotype-debian-sources-list --snapshot ${eol:+--eol} ${ports:+--ports} "$rootfs" "$codename"
 
 					create_artifacts "$targetBase" "$rootfs" "$codename" "$variant"
 				done
