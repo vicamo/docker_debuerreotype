@@ -49,7 +49,7 @@ if [ -n "$eol" ]; then
 	securityMirror='http://archive.debian.org/debian-security'
 	snapshotSecurityMirrors=( "$archiveSnapshotMirror/debian-security" "${snapshotSecurityMirrors[@]}" )
 elif [ -n "$ports" ]; then
-	standardMirror='http://archive.debian.org/debian-ports'
+	standardMirror='http://deb.debian.org/debian-ports'
 	snapshotStandardMirrors=( "$("$thisDir/.snapshot-url.sh" "@$epoch" 'debian-ports')" )
 	securityMirror=
 	snapshotSecurityMirrors=()
