@@ -6,7 +6,7 @@ source "$thisDir/.constants.sh" \
 	--flags 'eol,ports,snapshot' \
 	--flags 'deb-src' \
 	-- \
-	'[--deb-src] [--eol] [--ports] [--no-snapshot] <target-dir> <suite>' \
+	'[--deb-src] [--eol] [--ports] [--snapshot] <target-dir> <suite>' \
 	'--snapshot rootfs stretch
 --eol rootfs wheezy'
 

@@ -4,9 +4,9 @@ set -Eeuo pipefail
 thisDir="$(dirname "$(readlink -f "$BASH_SOURCE")")"
 source "$thisDir/scripts/.constants.sh" \
 	--flags 'no-build,codename-copy' \
-	--flags 'eol,arch:,qemu,qemu-suite:,ports,include:,exclude:' \
+	--flags 'eol,ports,arch:,qemu,qemu-suite:,include:,exclude:' \
 	-- \
-	'[--no-build] [--codename-copy] [--eol] [--arch=<arch>] [--qemu] [-qemu-suite=<suite>] [--ports] <output-dir> <suite> <timestamp>' \
+	'[--no-build] [--codename-copy] [--eol] [--ports] [--arch=<arch>] [--qemu] [-qemu-suite=<suite>] <output-dir> <suite> <timestamp>' \
 	'output stretch 2017-05-08T00:00:00Z
 --codename-copy output stable 2017-05-08T00:00:00Z
 --eol output squeeze 2016-03-14T00:00:00Z
@@ -30,7 +30,7 @@ while true; do
 		--no-build) build= ;; # for skipping "docker build"
 		--codename-copy) codenameCopy=1 ;; # for copying a "stable.tar.xz" to "stretch.tar.xz" with updated sources.list (saves a lot of extra building work)
 		--eol) eol=1 ;; # for using "archive.debian.org"
-		--ports) ports=1 ;; # for using "deb.debian.org/debian-ports"
+		--ports) ports=1 ;; # for using "debian-ports"
 		--arch) arch="$1"; shift ;; # for adding "--arch" to debuerreotype-init
 		--qemu) qemu=1 ;; # for using "qemu-debootstrap"
 		--qemu-suite) qemu_suite="$1"; shift ;; # for downloading qemu from specified suite
@@ -97,7 +97,7 @@ docker run \
 	-e suite="$suite" \
 	-e timestamp="$timestamp" \
 	-e codenameCopy="$codenameCopy" \
-	-e eol="$eol" -e arch="$arch" -e qemu="$qemu" -e ports="$ports" \
+	-e eol="$eol" -e ports="$ports" -e arch="$arch" -e qemu="$qemu" \
 	-e include="$include" -e exclude="$exclude" \
 	${QEMU_CPU:+-e QEMU_CPU="${QEMU_CPU}"} \
 	-e TZ='UTC' -e LC_ALL='C' \
@@ -123,14 +123,15 @@ docker run \
 		debuerreotypeScriptsDir="$(dirname "$(readlink -f "$(which debuerreotype-init)")")"
 
 		for archive in "" security; do
-			if [ -n "$ports" ]; then
-				snapshotUrl="$("$debuerreotypeScriptsDir/.snapshot-url.sh" "@$epoch" "debian-ports")"
-			elif [ -z "$eol" ]; then
+			snapshotUrlFile="$exportDir/$serial/$dpkgArch/snapshot-url${archive:+-${archive}}"
+			if [ -n "$ports" ] && [ -z "$archive" ]; then
+				archive="ports"
+			fi
+			if [ -z "$eol" ]; then
 				snapshotUrl="$("$debuerreotypeScriptsDir/.snapshot-url.sh" "@$epoch" "${archive:+debian-${archive}}")"
 			else
 				snapshotUrl="$("$debuerreotypeScriptsDir/.snapshot-url.sh" "@$epoch" "debian-archive")/debian${archive:+-${archive}}"
 			fi
-			snapshotUrlFile="$exportDir/$serial/$dpkgArch/snapshot-url${archive:+-${archive}}"
 			mkdir -p "$(dirname "$snapshotUrlFile")"
 			echo "$snapshotUrl" > "$snapshotUrlFile"
 			touch_epoch "$snapshotUrlFile"
@@ -255,6 +256,10 @@ docker run \
 			# https://anonscm.debian.org/cgit/buildd-tools/sbuild.git/tree/bin/sbuild-createchroot?id=eace3d3e59e48d26eaf069d9b63a6a4c868640e6#n194
 			debuerreotype-apt-get rootfs-sbuild install -y $noInstallRecommends build-essential fakeroot
 
+			sourcesListArgs=()
+			[ -z "$eol" ] || sourcesListArgs+=( --eol )
+			[ -z "$ports" ] || sourcesListArgs+=( --ports )
+
 			create_artifacts() {
 				local targetBase="$1"; shift
 				local rootfs="$1"; shift
@@ -271,10 +276,10 @@ docker run \
 				fi
 
 				if [ "$variant" != "sbuild" ]; then
-					debuerreotype-debian-sources-list ${eol:+--eol} ${ports:+--ports} "$rootfs" "$suite"
+					debuerreotype-debian-sources-list "${sourcesListArgs[@]}" "$rootfs" "$suite"
 				else
 					# sbuild needs "deb-src" entries
-					debuerreotype-debian-sources-list --deb-src ${eol:+--eol} ${ports:+--ports} "$rootfs" "$suite"
+					debuerreotype-debian-sources-list --deb-src "${sourcesListArgs[@]}" "$rootfs" "$suite"
 
 					# APT has odd issues with "Acquire::GzipIndexes=false" + "file://..." sources sometimes
 					# (which are used in sbuild for "--extra-package")
@@ -368,7 +373,7 @@ docker run \
 					targetBase="$variantDir/rootfs"
 
 					# point sources.list back at snapshot.debian.org temporarily (but this time pointing at $codename instead of $suite)
-					debuerreotype-debian-sources-list --snapshot ${eol:+--eol} ${ports:+--ports} "$rootfs" "$codename"
+					debuerreotype-debian-sources-list --snapshot "${sourcesListArgs[@]}" "$rootfs" "$codename"
 
 					create_artifacts "$targetBase" "$rootfs" "$codename" "$variant"
 				done
