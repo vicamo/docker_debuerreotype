@@ -140,7 +140,10 @@ fi
 echo "$epoch" > "$targetDir/debuerreotype-epoch"
 
 if [ -z "$nonDebian" ]; then
-	"$thisDir/debuerreotype-debian-sources-list" --snapshot ${debianEol:+--eol} ${debianPorts:+--ports} "$targetDir" "$suite"
+	"$thisDir/debuerreotype-debian-sources-list" --snapshot \
+		$([ -z "$debianEol" ] || echo '--eol') \
+		$([ -z "$debianPorts" ] || echo '--ports') \
+		"$targetDir" "$suite"
 	"$thisDir/debuerreotype-apt-get" "$targetDir" update -qq
 fi
 
