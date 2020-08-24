@@ -147,9 +147,14 @@ docker run \
 		else
 			# check against all releases (ie, combine both "debian-archive-keyring.gpg" and "debian-archive-removed-keys.gpg"), since we cannot really know whether the target release became EOL later than the snapshot date we are targeting
 			gpg --batch --no-default-keyring --keyring "$keyring" --import \
-				$([ -z "$ports" ] || echo /usr/share/keyrings/debian-ports-archive-keyring.gpg) \
 				/usr/share/keyrings/debian-archive-keyring.gpg \
 				/usr/share/keyrings/debian-archive-removed-keys.gpg
+
+			if [ -n "$ports" ]; then
+				gpg --batch --no-default-keyring --keyring "$keyring" --import \
+					/usr/share/keyrings/debian-ports-archive-keyring.gpg \
+					/usr/share/keyrings/debian-ports-archive-keyring-removed.gpg
+			fi
 		fi
 
 		snapshotUrl="$(< "$exportDir/$serial/$dpkgArch/snapshot-url")"
