@@ -81,6 +81,7 @@ if [ -n "$qemu" ]; then
 			&& apt-get update && apt-get install -y --no-install-recommends \\
 				qemu-user-static/${qemu_suite} \\
 			&& sed -e 's,\\(alpha|arm.*\\))$,hppa|\\1),' \\
+			        -e 's,lpia)$,lpia|x32),' \\
 				-e 's,powerpc|powerpcspe),powerpc)\\n    qemu_arch="ppc"\\n  ;;\\n  powerpcspe)\\n    export QEMU_CPU=e500v2,' \\
 				-i /usr/sbin/qemu-debootstrap \\
 			&& rm /etc/apt/sources.list.d/qemu.list \\
