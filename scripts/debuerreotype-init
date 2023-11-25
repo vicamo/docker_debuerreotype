@@ -33,10 +33,10 @@ while true; do
 	flag="$1"; shift
 	dgetopt-case "$flag"
 	case "$flag" in
-		--debian)       nonDebian= ; debianEol= ; debianPorts= ;;
-		--debian-eol)   nonDebian= ; debianEol=1; debianPorts= ;;
-		--debian-ports) nonDebian= ; debianEol= ; debianPorts=1 ;;
-		--non-debian)   nonDebian=1; debianEol= ; debianPorts= ;;
+		--debian)       nonDebian= ;;
+		--debian-eol)   nonDebian= ; debianEol=1 ;;
+		--debian-ports) nonDebian= ; debianPorts=1 ;;
+		--non-debian)   nonDebian=1 ;;
 		--debootstrap) debootstrap="$1"; shift ;;
 		--debootstrap-script) script="$1"; shift ;;
 		--keyring) keyring="$1"; shift ;;
@@ -82,10 +82,12 @@ epoch="$(date --date "$timestamp" '+%s')"
 export SOURCE_DATE_EPOCH="$epoch"
 
 if [ -z "$nonDebian" ]; then
-	if [ -n "$debianPorts" ]; then
-		mirror="$("$thisDir/.snapshot-url.sh" "@$epoch" 'debian-ports')"
-	elif [ -z "$debianEol" ]; then
-		mirror="$("$thisDir/.snapshot-url.sh" "@$epoch")"
+	if [ -z "$debianEol" ]; then
+		if [ -z "$debianPorts" ]; then
+			mirror="$("$thisDir/.snapshot-url.sh" "@$epoch")"
+		else
+			mirror="$("$thisDir/.snapshot-url.sh" "@$epoch" 'debian-ports')"
+		fi
 	else
 		mirrorbase="$("$thisDir/.snapshot-url.sh" "@$epoch" 'debian-archive')"
 		mirror="$mirrorbase/debian"

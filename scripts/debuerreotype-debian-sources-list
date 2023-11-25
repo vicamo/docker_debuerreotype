@@ -34,8 +34,13 @@ suite="${1:-}"; shift || eusage 'missing suite'
 
 epoch="$(< "$targetDir/debuerreotype-epoch")"
 
-standardMirror='http://deb.debian.org/debian'
-snapshotStandardMirrors=( "$("$thisDir/.snapshot-url.sh" "@$epoch")" )
+if [ -z "$ports" ]; then
+	standardMirror='http://deb.debian.org/debian'
+	snapshotStandardMirrors=( "$("$thisDir/.snapshot-url.sh" "@$epoch")" )
+else
+	standardMirror='http://deb.debian.org/debian-ports'
+	snapshotStandardMirrors=( "$("$thisDir/.snapshot-url.sh" "@$epoch" 'debian-ports')" )
+fi
 
 securityMirror='http://security.debian.org/debian-security'
 snapshotSecurityMirrors=( "$("$thisDir/.snapshot-url.sh" "@$epoch" 'debian-security')" )
@@ -48,11 +53,6 @@ if [ -n "$eol" ]; then
 
 	securityMirror='http://archive.debian.org/debian-security'
 	snapshotSecurityMirrors=( "$archiveSnapshotMirror/debian-security" "${snapshotSecurityMirrors[@]}" )
-elif [ -n "$ports" ]; then
-	standardMirror='http://deb.debian.org/debian-ports'
-	snapshotStandardMirrors=( "$("$thisDir/.snapshot-url.sh" "@$epoch" 'debian-ports')" )
-	securityMirror=
-	snapshotSecurityMirrors=()
 fi
 
 comp='main'

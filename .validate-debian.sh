@@ -8,9 +8,6 @@ buildArgs=()
 if [ "$SUITE" = 'eol' ]; then
 	buildArgs+=( '--eol' )
 	SUITE="$CODENAME"
-elif [ "$SUITE" = 'ports' ]; then
-	buildArgs+=( '--ports' )
-	SUITE="$CODENAME"
 elif [ -n "${CODENAME:-}" ]; then
 	buildArgs+=( '--codename-copy' )
 fi
@@ -18,6 +15,9 @@ if [ -n "${ARCH:-}" ]; then
 	buildArgs+=( "--arch=${ARCH}" )
 	if [ "$ARCH" != 'i386' ]; then
 		buildArgs+=( '--qemu' )
+		if [ "$ARCH" != 'arm64' ]; then
+			buildArgs+=( '--ports' )
+		fi
 	fi
 fi
 buildArgs+=( validate "$SUITE" "@$epoch" )
