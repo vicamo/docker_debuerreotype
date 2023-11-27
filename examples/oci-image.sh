@@ -38,10 +38,10 @@ while true; do
 	esac
 done
 
-targetFile="${1:-}"; shift || eusage 'missing target-file' # "something.tar"
+target="${1:-}"; shift || eusage 'missing target-file' # "something.tar"
 sourceDir="${1:-}"; shift || eusage 'missing source-directory' # "out/YYYYMMDD/ARCH/SUITE{,/slim}"
 
-targetFile="$(readlink -vf "$targetFile")"
+target="$(readlink -vf "$target")"
 if [ -n "$meta" ]; then
 	meta="$(readlink -vf "$meta")"
 fi
@@ -58,34 +58,12 @@ epoch="$(< "$sourceDir/rootfs.debuerreotype-epoch")"
 iso8601="$(date --date="@$epoch" '+%Y-%m-%dT%H:%M:%SZ')"
 export version epoch iso8601
 
-if [ -s "$sourceDir/rootfs.apt-dist" ]; then
-	suite="$(< "$sourceDir/rootfs.apt-dist")"
-	# TODO remove this fallback once debuerreotype 0.13 is released and we can safely assume "rootfs.apt-dist" exists
-else
-	suite="$(awk '$1 == "deb" { print $3; exit }' "$sourceDir/rootfs.sources-list")"
-fi
+suite="$(< "$sourceDir/rootfs.apt-dist")"
 export suite
 
-if [ -s "$sourceDir/rootfs.debuerreotype-variant" ]; then
-	variant="$(< "$sourceDir/rootfs.debuerreotype-variant")"
-	# TODO remove this fallback once debuerreotype 0.13 is released and we can safely assume "rootfs.debuerreotype-variant" exists
-else
-	dirBase="$(basename "$sourceDir")"
-	case "$dirBase" in
-		slim) variant="$dirBase" ;;
-		"$suite") variant='' ;;
-		*) echo >&2 "error: unknown variant: '$variant'"; exit 1 ;;
-	esac
-fi
+variant="$(< "$sourceDir/rootfs.debuerreotype-variant")"
 
-if [ -s "$sourceDir/rootfs.dpkg-arch" ]; then
-	dpkgArch="$(< "$sourceDir/rootfs.dpkg-arch")"
-	# TODO remove these fallbacks once debuerreotype 0.13 is released and we can safely assume "rootfs.dpkg-arch" exists
-elif [ -n "$variant" ]; then # xxx/YYYYMMDD/ARCH/SUITE/slim
-	dpkgArch="$(cd "$sourceDir/../.." && basename "$PWD")"
-else # xxx/YYYYMMDD/ARCH/SUITE
-	dpkgArch="$(cd "$sourceDir/.." && basename "$PWD")"
-fi
+dpkgArch="$(< "$sourceDir/rootfs.dpkg-arch")"
 unset goArch
 goArm=
 case "$dpkgArch" in
@@ -127,7 +105,8 @@ pigz --best --no-time "$tempDir/rootfs.tar"
 rootfsSize="$(stat --format='%s' "$tempDir/rootfs.tar.gz")"
 rootfsSha256="$(_sha256 "$tempDir/rootfs.tar.gz")"
 export rootfsSize rootfsSha256
-mv "$tempDir/rootfs.tar.gz" "$tempDir/oci/blobs/sha256/$rootfsSha256"
+mv "$tempDir/rootfs.tar.gz" "$tempDir/oci/blobs/rootfs.tar.gz"
+ln -sfT ../rootfs.tar.gz "$tempDir/oci/blobs/sha256/$rootfsSha256"
 
 script='debian.sh'
 if [ -x "$thisDir/$osID.sh" ]; then
@@ -183,22 +162,25 @@ jq -ncS '
 ' > "$tempDir/config.json"
 configSize="$(stat --format='%s' "$tempDir/config.json")"
 configSha256="$(_sha256 "$tempDir/config.json")"
-export configSize configSha256
-mv "$tempDir/config.json" "$tempDir/oci/blobs/sha256/$configSha256"
+configData="$(base64 -w0 "$tempDir/config.json")" # so we can embed it in the descriptor 👀
+export configSize configSha256 configData
+mv "$tempDir/config.json" "$tempDir/oci/blobs/image-config.json"
+ln -sfT ../image-config.json "$tempDir/oci/blobs/sha256/$configSha256"
 
 # https://github.com/opencontainers/image-spec/blob/v1.0.1/manifest.md
 jq -ncS '
 	{
 		schemaVersion: 2,
-		mediaType: "application/vnd.docker.distribution.manifest.v2+json",
+		mediaType: "application/vnd.oci.image.manifest.v1+json",
 		config: {
-			mediaType: "application/vnd.docker.container.image.v1+json",
+			mediaType: "application/vnd.oci.image.config.v1+json",
 			size: (env.configSize | tonumber),
 			digest: ( "sha256:" + env.configSha256 ),
+			data: env.configData,
 		},
 		layers: [
 			{
-				mediaType: "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				mediaType: "application/vnd.oci.image.layer.v1.tar+gzip",
 				size: (env.rootfsSize | tonumber),
 				digest: ( "sha256:" + env.rootfsSha256 ),
 			}
@@ -207,26 +189,31 @@ jq -ncS '
 ' > "$tempDir/manifest.json"
 manifestSize="$(stat --format='%s' "$tempDir/manifest.json")"
 manifestSha256="$(_sha256 "$tempDir/manifest.json")"
-export manifestSize manifestSha256
-mv "$tempDir/manifest.json" "$tempDir/oci/blobs/sha256/$manifestSha256"
+manifestData="$(base64 -w0 "$tempDir/manifest.json")" # so we can embed it in the descriptor 👀
+export manifestSize manifestSha256 manifestData
+mv "$tempDir/manifest.json" "$tempDir/oci/blobs/image-manifest.json"
+ln -sfT ../image-manifest.json "$tempDir/oci/blobs/sha256/$manifestSha256"
 
 export repo="$bashbrewArch/$osID" # "amd64/debian", "arm32v6/raspbian", etc.
 export tag="$suite${variant:+-$variant}" # "buster", "buster-slim", etc.
 export image="$repo:$tag"
 
 # https://github.com/opencontainers/image-spec/blob/v1.0.1/image-index.md
-jq -ncS '
+platform="$(jq -c 'with_entries(select(.key == ([ "os", "architecture", "variant" ][])))' "$tempDir/oci/blobs/sha256/$configSha256")"
+jq -ncS --argjson platform "$platform" '
 	{
 		schemaVersion: 2,
 		manifests: [
 			{
-				mediaType: "application/vnd.docker.distribution.manifest.v2+json",
+				mediaType: "application/vnd.oci.image.manifest.v1+json",
 				size: (env.manifestSize | tonumber),
 				digest: ( "sha256:" + env.manifestSha256 ),
+				platform: $platform,
 				annotations: {
 					"io.containerd.image.name": env.image,
 					"org.opencontainers.image.ref.name": env.tag,
 				},
+				data: env.manifestData,
 			}
 		],
 	}
@@ -249,18 +236,23 @@ find "$tempDir/oci" \
 	-newermt "@$epoch" \
 	-exec touch --no-dereference --date="@$epoch" '{}' +
 
-echo >&2 "generating tarball ($targetFile) ..."
+if [ -d "$target" ]; then
+	# this is an undocumented feature -- if you run the script with an existing directory, it will assume that directory must be where you want the OCI bundle dumped
+	echo >&2 "copying ($target) ..."
+	rsync -a --delete-after "$tempDir/oci/" "$target/"
+else
+	echo >&2 "generating tarball ($target) ..."
 
-tar --create \
-	--auto-compress \
-	--directory "$tempDir/oci" \
-	--file "$targetFile" \
-	--numeric-owner --owner 1000:1000 \
-	--sort name \
-	.
-touch --no-dereference --date="@$epoch" "$targetFile"
+	tar --create \
+		--auto-compress \
+		--directory "$tempDir/oci" \
+		--file "$target" \
+		--numeric-owner --owner 1000:1000 \
+		--sort name \
+		.
+	touch --no-dereference --date="@$epoch" "$target"
+fi
 
-platform="$(jq -c 'with_entries(select(.key == ([ "os", "architecture", "variant" ][])))' "$tempDir/oci/blobs/sha256/$configSha256")"
 jq -n --argjson platform "$platform" '
 	{
 		image: env.image,

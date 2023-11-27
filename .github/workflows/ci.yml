@@ -11,17 +11,23 @@ defaults:
   run:
     shell: 'bash -Eeuo pipefail -x {0}'
 
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
 
   https:
     name: Ensure no-TLS snapshot usage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Ensure http://snapshot.debian.org (https://github.com/debuerreotype/debuerreotype/pull/119#issuecomment-901457009)
         run: |
           rm .github/workflows/ci.yml # this file itself will always be a match, but it's the only valid one 👀
-          ! grep -rn 'https://snapshot.debian.org'
+          if grep -rn 'https://snapshot.debian.org'; then
+            exit 1
+          fi
 
   test:
     strategy:
@@ -42,10 +48,10 @@ jobs:
           - { SUITE: eol, CODENAME: woody, ARCH: i386, TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: f80833896e141fbfebf8c91e79da2ccca1bdeb8f8ecc4e05dd33531c32857e0f }
           - { SUITE: eol, CODENAME: jessie, TIMESTAMP: "2021-03-01T00:00:00Z", SHA256: 45c5553e989a8d42106029ec6f5e042bf48b29e08bf50e414f99f04c33b10fe9 }
 
-          # deb822 testing
-          - { SUITE: unstable, CODENAME: "", TIMESTAMP: "2022-06-30T00:00:00Z", SHA256: 6e781f82630cf92e68ce206a5363983be6b05fff0270de5d1839bcd5e2c415fd }
-          - { SUITE: bookworm, CODENAME: "", TIMESTAMP: "2022-06-30T00:00:00Z", SHA256: 2c8382c35c735217e66f51fd4634bb2f4d89cd0119af2151d320ecb677cb6b20 }
-          - { SUITE: bullseye, CODENAME: "", TIMESTAMP: "2022-06-30T00:00:00Z", SHA256: 2e65c32660eb2035874444de9e11223f34429712a7b6255f13127a3506e2bcb1 }
+          # deb822 / usr-is-merged testing
+          - { SUITE: unstable, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: 03a0c528782513e6d00a4f0e4d6137d5eb308e1b7544e2230d86626861086f1a }
+          - { SUITE: bookworm, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: 8b350357e65dc02f04774c56d4b39b232ba53746a132496a211d3152287f7db2 }
+          - { SUITE: bullseye, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: cd39823e09ebc57cc3e6d4d57faa24ea6ddfab60f0519165a26f101ea94f13a0 }
 
           # qemu-debootstrap testing
           - { ARCH: arm64,   SUITE: jessie,   CODENAME: "", TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 45b3c398b472ff45399cc6cc633005f48d2359d0df8d905022d37a29434420cf }
@@ -64,7 +70,7 @@ jobs:
     runs-on: ubuntu-20.04
     env: ${{ matrix }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Prepare Environment
         run: |
           sudo apt-get update -qq

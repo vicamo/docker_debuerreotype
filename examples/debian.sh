@@ -139,6 +139,8 @@ mkdir -p "$tmpOutputDir"
 mirror="$(< "$archDir/snapshot-url")"
 if [ -f "$keyring" ] && wget -O "$tmpOutputDir/InRelease" "$mirror/dists/$suite/InRelease"; then
 	gpgv \
+		3>"$tmpDir/gpgv-status.txt" \
+		--status-fd 3 \
 		--keyring "$keyring" \
 		--output "$tmpOutputDir/Release" \
 		"$tmpOutputDir/InRelease"
@@ -146,6 +148,8 @@ if [ -f "$keyring" ] && wget -O "$tmpOutputDir/InRelease" "$mirror/dists/$suite/
 elif [ -f "$keyring" ] && wget -O "$tmpOutputDir/Release.gpg" "$mirror/dists/$suite/Release.gpg" && wget -O "$tmpOutputDir/Release" "$mirror/dists/$suite/Release"; then
 	rm -f "$tmpOutputDir/InRelease" # remove wget leftovers
 	gpgv \
+		3>"$tmpDir/gpgv-status.txt" \
+		--status-fd 3 \
 		--keyring "$keyring" \
 		"$tmpOutputDir/Release.gpg" \
 		"$tmpOutputDir/Release"
@@ -170,13 +174,34 @@ if [ -n "$codenameCopy" ] && [ -z "$codename" ]; then
 	exit 1
 fi
 
-initArgs+=(
-	# disable merged-usr (for now?) due to the following compelling arguments:
-	#  - https://bugs.debian.org/src:usrmerge ("dpkg-query" breaks, etc)
-	#  - https://bugs.debian.org/914208 ("buildd" variant disables merged-usr still)
-	#  - https://github.com/debuerreotype/docker-debian-artifacts/issues/60#issuecomment-461426406
-	--no-merged-usr
-)
+# apply merged-/usr (for bookworm+)
+# https://lists.debian.org/debian-ctte/2022/07/msg00034.html
+# https://github.com/debuerreotype/docker-debian-artifacts/issues/131#issuecomment-1190233249
+case "${codename:-$suite}" in
+	# this has to be a full codename list because we don't have aptVersion available yet because there's no APT yet 🙈
+	slink | potato | woody | sarge | etch | lenny | squeeze | wheezy | jessie | stretch | buster | bullseye)
+		initArgs+=( --no-merged-usr )
+		;;
+
+	*)
+		epochUsrIsMerged="$(date --date '2022-07-24 00:00:00' +%s)" # https://tracker.debian.org/news/1348264/usrmerge-29-migrated-to-testing/ ("usr-is-merged" binary package exists in bookworm+)
+		if [ "$epoch" -lt "$epochUsrIsMerged" ]; then
+			initArgs+=( --no-merged-usr --exclude=usr-is-merged )
+			# explicit --exclude for https://github.com/debuerreotype/debuerreotype/issues/140
+		else
+			initArgs+=( --merged-usr )
+			debootstrap="$(command -v debootstrap)"
+			if ! grep -q EXCLUDE_DEPENDENCY "$debootstrap" || ! grep -q EXCLUDE_DEPENDENCY "${DEBOOTSTRAP_DIR:-/usr/share/debootstrap}/functions"; then
+				cat >&2 <<-'EOERR'
+					error: debootstrap missing necessary patches; see:
+					  - https://salsa.debian.org/installer-team/debootstrap/-/merge_requests/76
+					  - https://salsa.debian.org/installer-team/debootstrap/-/merge_requests/81
+				EOERR
+				exit 1
+			fi
+		fi
+		;;
+esac
 
 if [ -n "$include" ]; then
 	initArgs+=( --include="$include" )
@@ -195,7 +220,7 @@ aptVersion="$("$debuerreotypeScriptsDir/.apt-version.sh" "$rootfsDir")"
 sourcesListArgs=()
 [ -z "$eol" ] || sourcesListArgs+=( --eol )
 [ -z "$ports" ] || sourcesListArgs+=( --ports )
-if dpkg --compare-versions "$aptVersion" '>=' '2.3~' && { [ "$suite" = 'unstable' ] || [ "$suite" = 'sid' ]; }; then # just unstable for now (TODO after some time testing this, we should update this to bookworm+ which is aptVersion 2.3+)
+if dpkg --compare-versions "$aptVersion" '>=' '2.3~'; then
 	sourcesListArgs+=( --deb822 )
 	sourcesListFile='/etc/apt/sources.list.d/debian.sources'
 else
@@ -205,7 +230,18 @@ fi
 debuerreotype-debian-sources-list "${sourcesListArgs[@]}" --snapshot "$rootfsDir" "$suite"
 [ -s "$rootfsDir$sourcesListFile" ] # trust, but verify
 
+addGpgvIgnore= # whether to invoke "debuerreotype-gpgv-ignore-expiration-config"
+excludeGpgvIgnore= # whether to let the "gpgv-ignore-expiration" script/config stay in the final image
 if [ -n "$eol" ]; then
+	# if we're building this rootfs *expecting* it to be EOL, we should always include the gpgv hacks in the final output
+	addGpgvIgnore=1
+elif [ -s "$tmpDir/gpgv-status.txt" ] && grep -F '[GNUPG:] EXPKEYSIG ' "$tmpDir/gpgv-status.txt"; then
+	# if we are *not* expecting this rootfs to be EOL but the key is expired, we need to include the gpgv hacks to build it successfully, but then want to *not* include them in the final output
+	addGpgvIgnore=1
+	excludeGpgvIgnore=1
+fi
+
+if [ -n "$addGpgvIgnore" ]; then
 	debuerreotype-gpgv-ignore-expiration-config "$rootfsDir"
 fi
 
@@ -312,6 +348,19 @@ create_artifacts() {
 			;;
 	esac
 
+	if [ ! -e "$rootfs/usr/share/doc/usr-is-merged/copyright" ] && [ -e "$rootfs/etc/unsupported-skip-usrmerge-conversion" ]; then
+		# if we have the "/etc/unsupported-skip-usrmerge-conversion" file but not the "usr-is-merged" package, we should be safe to remove the "unsupported configuration" flag file (see "epochUsrIsMerged" section above, specifically the "--exclude=usr-is-merged" case)
+		tarArgs+=( --exclude './etc/unsupported-skip-usrmerge-conversion' )
+	fi
+
+	if [ -n "$excludeGpgvIgnore" ]; then
+		# this list needs to stay in sync with "scripts/debuerreotype-gpgv-ignore-expiration-config"
+		tarArgs+=(
+			--exclude './usr/local/bin/.debuerreotype-gpgv-ignore-expiration'
+			--exclude './etc/apt/apt.conf.d/debuerreotype-gpgv-ignore-expiration'
+		)
+	fi
+
 	debuerreotype-tar "${tarArgs[@]}" "$rootfs" "$targetBase.tar.xz"
 	du -hsx "$targetBase.tar.xz"
 
@@ -329,7 +378,10 @@ create_artifacts() {
 	echo "$epoch" > "$targetBase.debuerreotype-epoch"
 	echo "$variant" > "$targetBase.debuerreotype-variant"
 	debuerreotype-version > "$targetBase.debuerreotype-version"
-	touch_epoch "$targetBase".{manifest,apt-dist,dpkg-arch,debuerreotype-*}
+	debootstrapVersion="$(debootstrap --version)"
+	debootstrapVersion="${debootstrapVersion#debootstrap }" # "debootstrap X.Y.Z" -> "X.Y.Z"
+	echo "$debootstrapVersion" > "$targetBase.debootstrap-version"
+	touch_epoch "$targetBase".{manifest,apt-dist,dpkg-arch,debuerreotype-*,debootstrap-version}
 
 	for f in /etc/debian_version /etc/os-release "$sourcesListFile"; do
 		targetFile="$(_sanitize_basename "$f")"
