@@ -4,9 +4,9 @@ set -Eeuo pipefail
 thisDir="$(dirname "$(readlink -f "$BASH_SOURCE")")"
 source "$thisDir/scripts/.constants.sh" \
 	--flags 'no-build,codename-copy' \
-	--flags 'eol,ports,arch:,qemu,qemu-suite:' \
+	--flags 'eol,ports,arch:,qemu' \
 	-- \
-	'[--no-build] [--codename-copy] [--eol] [--ports] [--arch=<arch>] [--qemu] [-qemu-suite=<suite>] <output-dir> <suite> <timestamp>' \
+	'[--no-build] [--codename-copy] [--eol] [--ports] [--arch=<arch>] [--qemu] <output-dir> <suite> <timestamp>' \
 	'output stretch 2017-05-08T00:00:00Z
 --codename-copy output stable 2017-05-08T00:00:00Z
 --eol output squeeze 2016-03-14T00:00:00Z
@@ -19,7 +19,6 @@ eol=
 ports=
 arch=
 qemu=
-qemu_suite=testing
 while true; do
 	flag="$1"; shift
 	dgetopt-case "$flag"
@@ -30,7 +29,6 @@ while true; do
 		--ports) ports=1 ;; # for using "debian-ports"
 		--arch) arch="$1"; shift ;; # for adding "--arch" to debuerreotype-init
 		--qemu) qemu=1 ;; # for using "qemu-debootstrap"
-		--qemu-suite) qemu_suite="$1"; shift ;; # for downloading qemu from specified suite
 		--) break ;;
 		*) eusage "unknown flag '$flag'" ;;
 	esac
@@ -68,14 +66,7 @@ dockerImage="debuerreotype/debuerreotype:$ver"
 if [ -n "$qemu" ]; then
 	[ -z "$build" ] || docker build -t "$dockerImage-qemu" - <<-EODF
 		FROM $dockerImage
-		RUN (echo "deb http://deb.debian.org/debian ${qemu_suite} main" | tee /etc/apt/sources.list.d/qemu.list) \\
-			&& apt-get update && apt-get install -y --no-install-recommends \\
-				qemu-user-static/${qemu_suite} \\
-			&& sed -e 's,\\(alpha|arm.*\\))$,hppa|\\1),' \\
-				-e 's,powerpc|powerpcspe),powerpc)\\n    qemu_arch="ppc"\\n  ;;\\n  powerpcspe)\\n    export QEMU_CPU=e500v2,' \\
-				-i /usr/sbin/qemu-debootstrap \\
-			&& rm /etc/apt/sources.list.d/qemu.list \\
-			&& rm -rf /var/lib/apt/lists/*
+		RUN apt-get update && apt-get install -y --no-install-recommends qemu-user-static && rm -rf /var/lib/apt/lists/*
 	EODF
 	dockerImage="$dockerImage-qemu"
 fi
@@ -89,7 +80,6 @@ docker run \
 	-e timestamp="$timestamp" \
 	-e codenameCopy="$codenameCopy" \
 	-e eol="$eol" -e ports="$ports" -e arch="$arch" -e qemu="$qemu" \
-	${QEMU_CPU:+-e QEMU_CPU="${QEMU_CPU}"} \
 	-e TZ='UTC' -e LC_ALL='C' \
 	--hostname debuerreotype \
 	"$dockerImage" \
