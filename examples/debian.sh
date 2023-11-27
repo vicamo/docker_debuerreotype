@@ -6,12 +6,12 @@ debuerreotypeScriptsDir="$(readlink -vf "$debuerreotypeScriptsDir")"
 debuerreotypeScriptsDir="$(dirname "$debuerreotypeScriptsDir")"
 
 source "$debuerreotypeScriptsDir/.constants.sh" \
-	--flags 'codename-copy,sbuild' \
+	--flags 'codename-copy' \
 	--flags 'eol,ports' \
-	--flags 'arch:,qemu' \
+	--flags 'arch:' \
 	--flags 'include:,exclude:' \
 	-- \
-	'[--codename-copy] [--sbuild] [--eol] [--ports] [--arch=<arch>] [--qemu] <output-dir> <suite> <timestamp>' \
+	'[--codename-copy] [--eol] [--ports] [--arch=<arch>] <output-dir> <suite> <timestamp>' \
 	'output stretch 2017-05-08T00:00:00Z
 --codename-copy output stable 2017-05-08T00:00:00Z
 --eol output squeeze 2016-03-14T00:00:00Z
@@ -21,21 +21,17 @@ eval "$dgetopt"
 codenameCopy=
 eol=
 ports=
-sbuild=
 include=
 exclude=
 arch=
-qemu=
 while true; do
 	flag="$1"; shift
 	dgetopt-case "$flag"
 	case "$flag" in
 		--codename-copy) codenameCopy=1 ;; # for copying a "stable.tar.xz" to "stretch.tar.xz" with updated sources.list (saves a lot of extra building work)
-		--sbuild) sbuild=1 ;; # for building "sbuild" compatible tarballs as well
 		--eol) eol=1 ;; # for using "archive.debian.org"
 		--ports) ports=1 ;; # for using "debian-ports"
 		--arch) arch="$1"; shift ;; # for adding "--arch" to debuerreotype-init
-		--qemu) qemu=1 ;; # for using "qemu-debootstrap"
 		--include) include="${include:+$include,}$1"; shift ;;
 		--exclude) exclude="${exclude:+$exclude,}$1"; shift ;;
 		--) break ;;
@@ -97,57 +93,10 @@ for archive in '' security; do
 	touch_epoch "$snapshotUrlFile"
 done
 
-export GNUPGHOME="$tmpDir/gnupg"
-mkdir -p "$GNUPGHOME"
-keyring="$tmpDir/debian-archive-$suite-keyring.gpg"
-if [ "$suite" = potato ]; then
-	# src:debian-archive-keyring was created in 2006, thus does not include a key for potato
-	gpg --batch --no-default-keyring --keyring "$keyring" \
-		--keyserver keyserver.ubuntu.com \
-		--recv-keys 8FD47FF1AA9372C37043DC28AA7DEB7B722F1AED
-else
-	# check against all releases (ie, combine both "debian-archive-keyring.gpg" and "debian-archive-removed-keys.gpg"), since we cannot really know whether the target release became EOL later than the snapshot date we are targeting
-	gpg --batch --no-default-keyring --keyring "$keyring" --import \
-		/usr/share/keyrings/debian-archive-keyring.gpg \
-		/usr/share/keyrings/debian-archive-removed-keys.gpg
-
-	if [ -n "$ports" ]; then
-		gpg --batch --no-default-keyring --keyring "$keyring" --import \
-			/usr/share/keyrings/debian-ports-archive-keyring.gpg \
-			/usr/share/keyrings/debian-ports-archive-keyring-removed.gpg
-	fi
-fi
-
-snapshotUrl="$(< "$archDir/snapshot-url")"
-mkdir -p "$tmpOutputDir"
-if wget -O "$tmpOutputDir/InRelease" "$snapshotUrl/dists/$suite/InRelease"; then
-	gpgv \
-		--keyring "$keyring" \
-		--output "$tmpOutputDir/Release" \
-		"$tmpOutputDir/InRelease"
-else
-	rm -f "$tmpOutputDir/InRelease" # remove wget leftovers
-	wget -O "$tmpOutputDir/Release.gpg" "$snapshotUrl/dists/$suite/Release.gpg"
-	wget -O "$tmpOutputDir/Release" "$snapshotUrl/dists/$suite/Release"
-	gpgv \
-		--keyring "$keyring" \
-		"$tmpOutputDir/Release.gpg" \
-		"$tmpOutputDir/Release"
-fi
-
-codename="$(awk -F ': ' '$1 == "Codename" { print $2; exit }' "$tmpOutputDir/Release")"
-if [ -n "$codenameCopy" ] && [ "$codename" = "$suite" ]; then
-	# if codename already is the same as suite, then making a copy does not make any sense
-	codenameCopy=
-fi
-if [ -n "$codenameCopy" ] && [ -z "$codename" ]; then
-	echo >&2 "error: --codename-copy specified but we failed to get a Codename for $suite"
-	exit 1
-fi
-
 initArgs=(
 	--arch "$dpkgArch"
 )
+
 if [ -z "$eol" ]; then
 	initArgs+=( --debian )
 else
@@ -159,21 +108,75 @@ if [ -n "$ports" ]; then
 		--include=debian-ports-archive-keyring
 	)
 fi
-initArgs+=(
-	--keyring "$keyring"
 
+export GNUPGHOME="$tmpDir/gnupg"
+mkdir -p "$GNUPGHOME"
+keyring="$tmpDir/debian-archive-$suite-keyring.gpg"
+if [ "$suite" = 'slink' ]; then
+	# slink (2.1) introduced apt, but without PGP 😅
+	initArgs+=( --no-check-gpg )
+elif [ "$suite" = 'potato' ]; then
+	# src:debian-archive-keyring was created in 2006, thus does not include a key for potato (2.2; EOL in 2003)
+	gpg --batch --no-default-keyring --keyring "$keyring" \
+		--keyserver keyserver.ubuntu.com \
+		--recv-keys 8FD47FF1AA9372C37043DC28AA7DEB7B722F1AED
+	initArgs+=( --keyring "$keyring" )
+else
+	# check against all releases (ie, combine both "debian-archive-keyring.gpg" and "debian-archive-removed-keys.gpg"), since we cannot really know whether the target release became EOL later than the snapshot date we are targeting
+	gpg --batch --no-default-keyring --keyring "$keyring" --import \
+		/usr/share/keyrings/debian-archive-keyring.gpg \
+		/usr/share/keyrings/debian-archive-removed-keys.gpg
+	if [ -n "$ports" ]; then
+		gpg --batch --no-default-keyring --keyring "$keyring" --import \
+			/usr/share/keyrings/debian-ports-archive-keyring.gpg \
+			/usr/share/keyrings/debian-ports-archive-keyring-removed.gpg
+	fi
+	initArgs+=( --keyring "$keyring" )
+fi
+
+mkdir -p "$tmpOutputDir"
+
+mirror="$(< "$archDir/snapshot-url")"
+if [ -f "$keyring" ] && wget -O "$tmpOutputDir/InRelease" "$mirror/dists/$suite/InRelease"; then
+	gpgv \
+		--keyring "$keyring" \
+		--output "$tmpOutputDir/Release" \
+		"$tmpOutputDir/InRelease"
+	[ -s "$tmpOutputDir/Release" ]
+elif [ -f "$keyring" ] && wget -O "$tmpOutputDir/Release.gpg" "$mirror/dists/$suite/Release.gpg" && wget -O "$tmpOutputDir/Release" "$mirror/dists/$suite/Release"; then
+	rm -f "$tmpOutputDir/InRelease" # remove wget leftovers
+	gpgv \
+		--keyring "$keyring" \
+		"$tmpOutputDir/Release.gpg" \
+		"$tmpOutputDir/Release"
+	[ -s "$tmpOutputDir/Release" ]
+elif [ "$suite" = 'slink' ]; then
+	# "Release" files were introduced in potato (2.2+)
+	rm -f "$tmpOutputDir/InRelease" "$tmpOutputDir/Release.gpg" "$tmpOutputDir/Release" # remove wget leftovers
+else
+	echo >&2 "error: failed to fetch either InRelease or Release.gpg+Release for '$suite' (from '$mirror')"
+	exit 1
+fi
+codename=
+if [ -f "$tmpOutputDir/Release" ]; then
+	codename="$(awk -F ': ' '$1 == "Codename" { print $2; exit }' "$tmpOutputDir/Release")"
+fi
+if [ -n "$codenameCopy" ] && [ "$codename" = "$suite" ]; then
+	# if codename already is the same as suite, then making a copy does not make any sense
+	codenameCopy=
+fi
+if [ -n "$codenameCopy" ] && [ -z "$codename" ]; then
+	echo >&2 "error: --codename-copy specified but we failed to get a Codename for $suite"
+	exit 1
+fi
+
+initArgs+=(
 	# disable merged-usr (for now?) due to the following compelling arguments:
 	#  - https://bugs.debian.org/src:usrmerge ("dpkg-query" breaks, etc)
 	#  - https://bugs.debian.org/914208 ("buildd" variant disables merged-usr still)
 	#  - https://github.com/debuerreotype/docker-debian-artifacts/issues/60#issuecomment-461426406
 	--no-merged-usr
 )
-
-if [ -n "$qemu" ]; then
-	initArgs+=( --debootstrap=qemu-debootstrap )
-	echo >&2 "warning: qemu-debootstrap is deprecated in favor of binfmt 'fix binary' mode: https://bugs.debian.org/901197"
-	sleep 1
-fi
 
 if [ -n "$include" ]; then
 	initArgs+=( --include="$include" )
@@ -190,15 +193,21 @@ if [ -n "$eol" ]; then
 fi
 
 debuerreotype-minimizing-config "$rootfsDir"
+
 debuerreotype-apt-get "$rootfsDir" update -qq
-debuerreotype-apt-get "$rootfsDir" dist-upgrade -yqq
 
 aptVersion="$("$debuerreotypeScriptsDir/.apt-version.sh" "$rootfsDir")"
+if dpkg --compare-versions "$aptVersion" '>=' '1.1~'; then
+	debuerreotype-apt-get "$rootfsDir" full-upgrade -yqq
+else
+	debuerreotype-apt-get "$rootfsDir" dist-upgrade -yqq
+fi
+
 if dpkg --compare-versions "$aptVersion" '>=' '0.7.14~'; then
 	# https://salsa.debian.org/apt-team/apt/commit/06d79436542ccf3e9664306da05ba4c34fba4882
 	noInstallRecommends='--no-install-recommends'
 else
-	# --debian-eol etch and lower do not support --no-install-recommends
+	# etch (4.0) and lower do not support --no-install-recommends
 	noInstallRecommends='-o APT::Install-Recommends=0'
 fi
 
@@ -208,13 +217,9 @@ if [ -n "$eol" ] && dpkg --compare-versions "$aptVersion" '>=' '0.7.26~'; then
 	# TODO make this a real script so it can have a nice comment explaining why we do it for EOL releases?
 fi
 
-# make a couple copies of rootfs so we can create other variants
+# copy the rootfs to create other variants
 mkdir "$rootfsDir"-slim
 tar -cC "$rootfsDir" . | tar -xC "$rootfsDir"-slim
-if [ -n "$sbuild" ]; then
-	mkdir "$rootfsDir"-sbuild
-	tar -cC "$rootfsDir" . | tar -xC "$rootfsDir"-sbuild
-fi
 
 # for historical reasons (related to their usefulness in debugging non-working container networking in container early days before "--network container:xxx"), Debian 10 and older non-slim images included both "ping" and "ip" above "minbase", but in 11+ (Bullseye), that will no longer be the case and we will instead be a faithful minbase again :D
 epoch2021="$(date --date '2021-01-01 00:00:00' +%s)"
@@ -227,20 +232,13 @@ if [ "$epoch" -lt "$epoch2021" ] || { isDebianBusterOrOlder="$([ -f "$rootfsDir/
 	fi
 	ping=iputils-ping
 	if debuerreotype-chroot "$rootfsDir" bash -c 'command -v ping > /dev/null'; then
-		# if we already have "ping" (as in --debian-eol potato), skip installing any extra ping package
+		# if we already have "ping" (as in potato, 2.2), skip installing any extra ping package
 		ping=
 	fi
 	debuerreotype-apt-get "$rootfsDir" install -y $noInstallRecommends $ping $iproute
 fi
 
 debuerreotype-slimify "$rootfsDir"-slim
-
-if [ -n "$sbuild" ]; then
-	# this should match the list added to the "buildd" variant in debootstrap and the list installed by sbuild
-	# https://salsa.debian.org/installer-team/debootstrap/blob/da5f17904de373cd7a9224ad7cd69c80b3e7e234/scripts/debian-common#L20
-	# https://salsa.debian.org/debian/sbuild/blob/fc306f4be0d2c57702c5e234273cd94b1dba094d/bin/sbuild-createchroot#L257-260
-	debuerreotype-apt-get "$rootfsDir"-sbuild install -y $noInstallRecommends build-essential fakeroot
-fi
 
 sourcesListArgs=()
 [ -z "$eol" ] || sourcesListArgs+=( --eol )
@@ -256,47 +254,37 @@ create_artifacts() {
 	cp "$rootfs/etc/apt/sources.list" "$targetBase.sources-list-snapshot"
 	touch_epoch "$targetBase.sources-list-snapshot"
 
-	local tarArgs=()
-	if [ -n "$qemu" ]; then
-		tarArgs+=( --exclude='./usr/bin/qemu-*-static' )
-	fi
+	debuerreotype-debian-sources-list "${sourcesListArgs[@]}" "$rootfs" "$suite"
 
-	if [ "$variant" != 'sbuild' ]; then
-		debuerreotype-debian-sources-list "${sourcesListArgs[@]}" "$rootfs" "$suite"
-	else
-		# sbuild needs "deb-src" entries
-		debuerreotype-debian-sources-list --deb-src "${sourcesListArgs[@]}" "$rootfs" "$suite"
-
-		# APT has odd issues with "Acquire::GzipIndexes=false" + "file://..." sources sometimes
-		# (which are used in sbuild for "--extra-package")
-		#   Could not open file /var/lib/apt/lists/partial/_tmp_tmp.ODWljpQfkE_._Packages - open (13: Permission denied)
-		#   ...
-		#   E: Failed to fetch store:/var/lib/apt/lists/partial/_tmp_tmp.ODWljpQfkE_._Packages  Could not open file /var/lib/apt/lists/partial/_tmp_tmp.ODWljpQfkE_._Packages - open (13: Permission denied)
-		rm -f "$rootfs/etc/apt/apt.conf.d/docker-gzip-indexes"
-		# TODO figure out the bug and fix it in APT instead /o\
-
-		# schroot is picky about "/dev" (which is excluded by default in "debuerreotype-tar")
-		# see https://github.com/debuerreotype/debuerreotype/pull/8#issuecomment-305855521
-		tarArgs+=( --include-dev )
-	fi
+	local tarArgs=(
+		# https://www.freedesktop.org/software/systemd/man/machine-id.html
+		--exclude ./etc/machine-id
+		# "debuerreotype-fixup" will make this an empty file for reproducibility, but for our Docker images it seems more appropriate for it to not exist (since they've never actually been "booted" so having the "first boot" logic trigger if someone were to run systemd in them conceptually makes sense)
+	)
 
 	case "$suite" in
-		sarge)
+		sarge) # 3.1
 			# for some reason, sarge creates "/var/cache/man/index.db" with some obvious embedded unix timestamps (but if we exclude it, "man" still works properly, so *shrug*)
 			tarArgs+=( --exclude ./var/cache/man/index.db )
 			;;
 
-		woody)
+		woody) # 3.0
 			# woody not only contains "exim", but launches it during our build process and tries to email "root@debuerreotype" (which fails and creates non-reproducibility)
 			tarArgs+=( --exclude ./var/spool/exim --exclude ./var/log/exim )
 			;;
 
-		potato)
+		potato) # 2.2
 			tarArgs+=(
 				# for some reason, pototo leaves a core dump (TODO figure out why??)
 				--exclude './core'
-				--exclude './qemu*.core'
 				# also, it leaves some junk in /tmp (/tmp/fdmount.conf.tmp.XXX)
+				--exclude './tmp/fdmount.conf.tmp.*'
+			)
+			;;
+
+		slink) # 2.1
+			tarArgs+=(
+				# same as potato :(
 				--exclude './tmp/fdmount.conf.tmp.*'
 			)
 			;;

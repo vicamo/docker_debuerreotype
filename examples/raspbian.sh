@@ -11,18 +11,15 @@ debuerreotypeScriptsDir="$(readlink -vf "$debuerreotypeScriptsDir")"
 debuerreotypeScriptsDir="$(dirname "$debuerreotypeScriptsDir")"
 
 source "$debuerreotypeScriptsDir/.constants.sh" \
-	--flags 'sbuild' \
 	-- \
 	'<output-dir> <suite>' \
 	'output stretch'
 
 eval "$dgetopt"
-sbuild=
 while true; do
 	flag="$1"; shift
 	dgetopt-case "$flag"
 	case "$flag" in
-		--sbuild) sbuild=1 ;; # for building "sbuild" compatible tarballs as well
 		--) break ;;
 		*) eusage "unknown flag '$flag'" ;;
 	esac
@@ -42,14 +39,21 @@ export TZ='UTC' LC_ALL='C'
 
 dpkgArch='armhf'
 
-#mirror='http://archive.raspbian.org/raspbian'
-mirror='http://mirrordirector.raspbian.org/raspbian'
-# (https://www.raspbian.org/RaspbianMirrors#The_mirror_redirection_system)
-
 exportDir="$tmpDir/output"
 archDir="$exportDir/raspbian/$dpkgArch"
 tmpOutputDir="$archDir/$suite"
 
+#mirror='http://archive.raspbian.org/raspbian'
+mirror='http://mirrordirector.raspbian.org/raspbian'
+# (https://www.raspbian.org/RaspbianMirrors#The_mirror_redirection_system)
+
+initArgs=(
+	--arch "$dpkgArch"
+	--non-debian
+)
+
+export GNUPGHOME="$tmpDir/gnupg"
+mkdir -p "$GNUPGHOME"
 keyring='/usr/share/keyrings/raspbian-archive-keyring.gpg'
 if [ ! -s "$keyring" ]; then
 	# since we're using mirrors, we ought to be more explicit about download verification
@@ -58,7 +62,7 @@ if [ ! -s "$keyring" ]; then
 		set +x
 		echo >&2
 		echo >&2 "WARNING: missing '$keyring' (from 'raspbian-archive-keyring' package)"
-		echo >&2 "  downloading '$keyUrl' (without verification)!"
+		echo >&2 "  downloading '$keyUrl' (without verification beyond TLS)!"
 		echo >&2
 	)
 	sleep 5
@@ -67,30 +71,29 @@ if [ ! -s "$keyring" ]; then
 	gpg --batch --no-default-keyring --keyring "$keyring" --import "$keyring.asc"
 	rm -f "$keyring.asc"
 fi
+initArgs+=( --keyring "$keyring" )
 
 mkdir -p "$tmpOutputDir"
-if wget -O "$tmpOutputDir/InRelease" "$mirror/dists/$suite/InRelease"; then
+
+if [ -f "$keyring" ] && wget -O "$tmpOutputDir/InRelease" "$mirror/dists/$suite/InRelease"; then
 	gpgv \
 		--keyring "$keyring" \
 		--output "$tmpOutputDir/Release" \
 		"$tmpOutputDir/InRelease"
-else
+	[ -s "$tmpOutputDir/Release" ]
+elif [ -f "$keyring" ] && wget -O "$tmpOutputDir/Release.gpg" "$mirror/dists/$suite/Release.gpg" && wget -O "$tmpOutputDir/Release" "$mirror/dists/$suite/Release"; then
 	rm -f "$tmpOutputDir/InRelease" # remove wget leftovers
-	wget -O "$tmpOutputDir/Release.gpg" "$mirror/dists/$suite/Release.gpg"
-	wget -O "$tmpOutputDir/Release" "$mirror/dists/$suite/Release"
 	gpgv \
 		--keyring "$keyring" \
 		"$tmpOutputDir/Release.gpg" \
 		"$tmpOutputDir/Release"
+	[ -s "$tmpOutputDir/Release" ]
+else
+	echo >&2 "error: failed to fetch either InRelease or Release.gpg+Release for '$suite' (from '$mirror')"
+	exit 1
 fi
 
-initArgs=(
-	--arch "$dpkgArch"
-
-	--non-debian
-
-	--keyring "$keyring"
-
+initArgs+=(
 	# disable merged-usr (for now?) due to the following compelling arguments:
 	#  - https://bugs.debian.org/src:usrmerge ("dpkg-query" breaks, etc)
 	#  - https://bugs.debian.org/914208 ("buildd" variant disables merged-usr still)
@@ -115,32 +118,32 @@ touch_epoch() {
 	done
 }
 
-debuerreotype-apt-get "$rootfsDir" dist-upgrade -yqq
+aptVersion="$("$debuerreotypeScriptsDir/.apt-version.sh" "$rootfsDir")"
+if dpkg --compare-versions "$aptVersion" '>=' '1.1~'; then
+	debuerreotype-apt-get "$rootfsDir" full-upgrade -yqq
+else
+	debuerreotype-apt-get "$rootfsDir" dist-upgrade -yqq
+fi
 
-# make a couple copies of rootfs so we can create other variants
+# copy the rootfs to create other variants
 mkdir "$rootfsDir"-slim
 tar -cC "$rootfsDir" . | tar -xC "$rootfsDir"-slim
-if [ -n "$sbuild" ]; then
-	mkdir "$rootfsDir"-sbuild
-	tar -cC "$rootfsDir" . | tar -xC "$rootfsDir"-sbuild
-fi
 
-# prefer iproute2 if it exists
-iproute=iproute2
-if ! debuerreotype-apt-get "$rootfsDir" install -qq -s iproute2 &> /dev/null; then
-	# poor wheezy
-	iproute=iproute
+# for historical reasons (related to their usefulness in debugging non-working container networking in container early days before "--network container:xxx"), Debian 10 and older non-slim images included both "ping" and "ip" above "minbase", but in 11+ (Bullseye), that will no longer be the case and we will instead be a faithful minbase again :D
+epoch2021="$(date --date '2021-01-01 00:00:00' +%s)"
+if [ "$epoch" -lt "$epoch2021" ] || { isDebianBusterOrOlder="$([ -f "$rootfsDir/etc/os-release" ] && source "$rootfsDir/etc/os-release" && [ -n "${VERSION_ID:-}" ] && [ "${VERSION_ID%%.*}" -le 10 ] && echo 1)" && [ -n "$isDebianBusterOrOlder" ]; }; then
+	# prefer iproute2 if it exists
+	iproute=iproute2
+	if ! debuerreotype-apt-get "$rootfsDir" install -qq -s iproute2 &> /dev/null; then
+		# poor wheezy
+		iproute=iproute
+	fi
+	ping=iputils-ping
+	noInstallRecommends='--no-install-recommends'
+	debuerreotype-apt-get "$rootfsDir" install -y $noInstallRecommends $ping $iproute
 fi
-debuerreotype-apt-get "$rootfsDir" install -y --no-install-recommends iputils-ping $iproute
 
 debuerreotype-slimify "$rootfsDir"-slim
-
-if [ -n "$sbuild" ]; then
-	# this should match the list added to the "buildd" variant in debootstrap and the list installed by sbuild
-	# https://salsa.debian.org/installer-team/debootstrap/blob/da5f17904de373cd7a9224ad7cd69c80b3e7e234/scripts/debian-common#L20
-	# https://salsa.debian.org/debian/sbuild/blob/fc306f4be0d2c57702c5e234273cd94b1dba094d/bin/sbuild-createchroot#L257-260
-	debuerreotype-apt-get "$rootfsDir"-sbuild install -y --no-install-recommends build-essential fakeroot
-fi
 
 create_artifacts() {
 	local targetBase="$1"; shift
@@ -149,23 +152,6 @@ create_artifacts() {
 	local variant="$1"; shift
 
 	local tarArgs=()
-
-	if [ "$variant" = 'sbuild' ]; then
-		# sbuild needs "deb-src" entries
-		debuerreotype-chroot "$rootfs" sed -ri -e '/^deb / p; s//deb-src /' /etc/apt/sources.list
-
-		# APT has odd issues with "Acquire::GzipIndexes=false" + "file://..." sources sometimes
-		# (which are used in sbuild for "--extra-package")
-		#   Could not open file /var/lib/apt/lists/partial/_tmp_tmp.ODWljpQfkE_._Packages - open (13: Permission denied)
-		#   ...
-		#   E: Failed to fetch store:/var/lib/apt/lists/partial/_tmp_tmp.ODWljpQfkE_._Packages  Could not open file /var/lib/apt/lists/partial/_tmp_tmp.ODWljpQfkE_._Packages - open (13: Permission denied)
-		rm -f "$rootfs/etc/apt/apt.conf.d/docker-gzip-indexes"
-		# TODO figure out the bug and fix it in APT instead /o\
-
-		# schroot is picky about "/dev" (which is excluded by default in "debuerreotype-tar")
-		# see https://github.com/debuerreotype/debuerreotype/pull/8#issuecomment-305855521
-		tarArgs+=( --include-dev )
-	fi
 
 	debuerreotype-tar "${tarArgs[@]}" "$rootfs" "$targetBase.tar.xz"
 	du -hsx "$targetBase.tar.xz"
@@ -183,8 +169,10 @@ create_artifacts() {
 
 	for f in debian_version os-release apt/sources.list; do
 		targetFile="$targetBase.$(basename "$f" | sed -r "s/[^a-zA-Z0-9_-]+/-/g")"
-		cp "$rootfs/etc/$f" "$targetFile"
-		touch_epoch "$targetFile"
+		if [ -e "$rootfs/etc/$f" ]; then
+			cp "$rootfs/etc/$f" "$targetFile"
+			touch_epoch "$targetFile"
+		fi
 	done
 }
 

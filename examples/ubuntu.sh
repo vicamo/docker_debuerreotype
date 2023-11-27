@@ -11,7 +11,6 @@ debuerreotypeScriptsDir="$(dirname "$debuerreotypeScriptsDir")"
 
 source "$debuerreotypeScriptsDir/.constants.sh" \
 	--flags 'arch:' \
-	--flags 'sbuild' \
 	-- \
 	'[--arch=<arch>] <output-dir> <suite>' \
 	'output xenial
@@ -19,13 +18,11 @@ source "$debuerreotypeScriptsDir/.constants.sh" \
 
 eval "$dgetopt"
 arch=
-sbuild=
 while true; do
 	flag="$1"; shift
 	dgetopt-case "$flag"
 	case "$flag" in
 		--arch) arch="$1"; shift ;; # for adding "--arch" to debuerreotype-init
-		--sbuild) sbuild=1 ;; # for building "sbuild" compatible tarballs as well
 		--) break ;;
 		*) eusage "unknown flag '$flag'" ;;
 	esac
@@ -45,6 +42,10 @@ export TZ='UTC' LC_ALL='C'
 
 dpkgArch="${arch:-$(dpkg --print-architecture | awk -F- '{ print $NF }')}"
 
+exportDir="$tmpDir/output"
+archDir="$exportDir/ubuntu/$dpkgArch"
+tmpOutputDir="$archDir/$suite"
+
 case "$dpkgArch" in
 	amd64 | i386)
 		mirror='http://archive.ubuntu.com/ubuntu'
@@ -57,33 +58,36 @@ case "$dpkgArch" in
 		;;
 esac
 
-exportDir="$tmpDir/output"
-archDir="$exportDir/ubuntu/$dpkgArch"
-tmpOutputDir="$archDir/$suite"
+initArgs=(
+	--arch "$dpkgArch"
+	--non-debian
+)
 
 keyring='/usr/share/keyrings/ubuntu-archive-keyring.gpg'
+initArgs+=( --keyring "$keyring" )
 
 mkdir -p "$tmpOutputDir"
-if wget -O "$tmpOutputDir/InRelease" "$mirror/dists/$suite/InRelease"; then
+
+if [ -f "$keyring" ] && wget -O "$tmpOutputDir/InRelease" "$mirror/dists/$suite/InRelease"; then
 	gpgv \
 		--keyring "$keyring" \
 		--output "$tmpOutputDir/Release" \
 		"$tmpOutputDir/InRelease"
-else
+	[ -s "$tmpOutputDir/Release" ]
+elif [ -f "$keyring" ] && wget -O "$tmpOutputDir/Release.gpg" "$mirror/dists/$suite/Release.gpg" && wget -O "$tmpOutputDir/Release" "$mirror/dists/$suite/Release"; then
 	rm -f "$tmpOutputDir/InRelease" # remove wget leftovers
-	wget -O "$tmpOutputDir/Release.gpg" "$mirror/dists/$suite/Release.gpg"
-	wget -O "$tmpOutputDir/Release" "$mirror/dists/$suite/Release"
 	gpgv \
 		--keyring "$keyring" \
 		"$tmpOutputDir/Release.gpg" \
 		"$tmpOutputDir/Release"
+	[ -s "$tmpOutputDir/Release" ]
+else
+	rm -f "$tmpOutputDir/InRelease" "$tmpOutputDir/Release.gpg" "$tmpOutputDir/Release" # remove wget leftovers
+	echo >&2 "error: failed to fetch either InRelease or Release.gpg+Release for '$suite' (from '$mirror')"
+	exit 1
 fi
 
-initArgs=(
-	--arch "$dpkgArch"
-	--non-debian
-	--keyring "$keyring"
-
+initArgs+=(
 	# disable merged-usr (for now?) due to the following compelling arguments:
 	#  - https://bugs.debian.org/src:usrmerge ("dpkg-query" breaks, etc)
 	#  - https://bugs.debian.org/914208 ("buildd" variant disables merged-usr still)
@@ -116,26 +120,26 @@ touch_epoch() {
 }
 touch_epoch "$rootfsDir/etc/apt/sources.list"
 
-debuerreotype-apt-get "$rootfsDir" dist-upgrade -yqq
+aptVersion="$("$debuerreotypeScriptsDir/.apt-version.sh" "$rootfsDir")"
+if dpkg --compare-versions "$aptVersion" '>=' '1.1~'; then
+	debuerreotype-apt-get "$rootfsDir" full-upgrade -yqq
+else
+	debuerreotype-apt-get "$rootfsDir" dist-upgrade -yqq
+fi
 
-# make a couple copies of rootfs so we can create other variants
+# copy the rootfs to create other variants
 mkdir "$rootfsDir"-slim
 tar -cC "$rootfsDir" . | tar -xC "$rootfsDir"-slim
-if [ -n "$sbuild" ]; then
-	mkdir "$rootfsDir"-sbuild
-	tar -cC "$rootfsDir" . | tar -xC "$rootfsDir"-sbuild
-fi
 
-debuerreotype-apt-get "$rootfsDir" install -y --no-install-recommends iproute2 iputils-ping
+# prefer iproute2 if it exists
+iproute=iproute2
+if ! debuerreotype-apt-get "$rootfsDir" install -qq -s iproute2 &> /dev/null; then
+	# poor wheezy
+	iproute=iproute
+fi
+debuerreotype-apt-get "$rootfsDir" install -y --no-install-recommends iputils-ping $iproute
 
 debuerreotype-slimify "$rootfsDir"-slim
-
-if [ -n "$sbuild" ]; then
-	# this should match the list added to the "buildd" variant in debootstrap and the list installed by sbuild
-	# https://salsa.debian.org/installer-team/debootstrap/blob/da5f17904de373cd7a9224ad7cd69c80b3e7e234/scripts/debian-common#L20
-	# https://salsa.debian.org/debian/sbuild/blob/fc306f4be0d2c57702c5e234273cd94b1dba094d/bin/sbuild-createchroot#L257-260
-	debuerreotype-apt-get "$rootfsDir"-sbuild install -y --no-install-recommends build-essential fakeroot
-fi
 
 create_artifacts() {
 	local targetBase="$1"; shift
@@ -144,23 +148,6 @@ create_artifacts() {
 	local variant="$1"; shift
 
 	local tarArgs=()
-
-	if [ "$variant" = 'sbuild' ]; then
-		# sbuild needs "deb-src" entries
-		debuerreotype-chroot "$rootfs" sed -ri -e '/^deb / p; s//deb-src /' /etc/apt/sources.list
-
-		# APT has odd issues with "Acquire::GzipIndexes=false" + "file://..." sources sometimes
-		# (which are used in sbuild for "--extra-package")
-		#   Could not open file /var/lib/apt/lists/partial/_tmp_tmp.ODWljpQfkE_._Packages - open (13: Permission denied)
-		#   ...
-		#   E: Failed to fetch store:/var/lib/apt/lists/partial/_tmp_tmp.ODWljpQfkE_._Packages  Could not open file /var/lib/apt/lists/partial/_tmp_tmp.ODWljpQfkE_._Packages - open (13: Permission denied)
-		rm -f "$rootfs/etc/apt/apt.conf.d/docker-gzip-indexes"
-		# TODO figure out the bug and fix it in APT instead /o\
-
-		# schroot is picky about "/dev" (which is excluded by default in "debuerreotype-tar")
-		# see https://github.com/debuerreotype/debuerreotype/pull/8#issuecomment-305855521
-		tarArgs+=( --include-dev )
-	fi
 
 	debuerreotype-tar "${tarArgs[@]}" "$rootfs" "$targetBase.tar.xz"
 	du -hsx "$targetBase.tar.xz"
@@ -178,8 +165,10 @@ create_artifacts() {
 
 	for f in debian_version os-release apt/sources.list; do
 		targetFile="$targetBase.$(basename "$f" | sed -r "s/[^a-zA-Z0-9_-]+/-/g")"
-		cp "$rootfs/etc/$f" "$targetFile"
-		touch_epoch "$targetFile"
+		if [ -e "$rootfs/etc/$f" ]; then
+			cp "$rootfs/etc/$f" "$targetFile"
+			touch_epoch "$targetFile"
+		fi
 	done
 }
 
