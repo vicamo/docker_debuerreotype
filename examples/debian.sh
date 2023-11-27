@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 debuerreotypeScriptsDir="$(which debuerreotype-init)"
-debuerreotypeScriptsDir="$(readlink -f "$debuerreotypeScriptsDir")"
+debuerreotypeScriptsDir="$(readlink -vf "$debuerreotypeScriptsDir")"
 debuerreotypeScriptsDir="$(dirname "$debuerreotypeScriptsDir")"
 
 source "$debuerreotypeScriptsDir/.constants.sh" \
@@ -49,7 +49,7 @@ timestamp="${1:-}"; shift || eusage 'missing timestamp'
 
 set -x
 
-outputDir="$(readlink -e "$outputDir")"
+outputDir="$(readlink -ve "$outputDir")"
 
 tmpDir="$(mktemp --directory --tmpdir "debuerreotype.$suite.XXXXXXXXXX")"
 trap "$(printf 'rm -rf %q' "$tmpDir")" EXIT
@@ -103,7 +103,7 @@ keyring="$tmpDir/debian-archive-$suite-keyring.gpg"
 if [ "$suite" = potato ]; then
 	# src:debian-archive-keyring was created in 2006, thus does not include a key for potato
 	gpg --batch --no-default-keyring --keyring "$keyring" \
-		--keyserver ha.pool.sks-keyservers.net \
+		--keyserver keyserver.ubuntu.com \
 		--recv-keys 8FD47FF1AA9372C37043DC28AA7DEB7B722F1AED
 else
 	# check against all releases (ie, combine both "debian-archive-keyring.gpg" and "debian-archive-removed-keys.gpg"), since we cannot really know whether the target release became EOL later than the snapshot date we are targeting
@@ -171,6 +171,8 @@ initArgs+=(
 
 if [ -n "$qemu" ]; then
 	initArgs+=( --debootstrap=qemu-debootstrap )
+	echo >&2 "warning: qemu-debootstrap is deprecated in favor of binfmt 'fix binary' mode: https://bugs.debian.org/901197"
+	sleep 1
 fi
 
 if [ -n "$include" ]; then
@@ -312,9 +314,12 @@ create_artifacts() {
 			dpkg -l
 		fi
 	' > "$targetBase.manifest"
+	echo "$suite" > "$targetBase.apt-dist"
+	echo "$dpkgArch" > "$targetBase.dpkg-arch"
 	echo "$epoch" > "$targetBase.debuerreotype-epoch"
+	echo "$variant" > "$targetBase.debuerreotype-variant"
 	debuerreotype-version > "$targetBase.debuerreotype-version"
-	touch_epoch "$targetBase.manifest" "$targetBase.debuerreotype-epoch" "$targetBase.debuerreotype-version"
+	touch_epoch "$targetBase".{manifest,apt-dist,dpkg-arch,debuerreotype-*}
 
 	for f in debian_version os-release apt/sources.list; do
 		targetFile="$targetBase.$(basename "$f" | sed -r "s/[^a-zA-Z0-9_-]+/-/g")"

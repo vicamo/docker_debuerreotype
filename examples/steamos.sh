@@ -7,7 +7,7 @@ set -Eeuo pipefail
 # 	&& rm valve.deb
 
 debuerreotypeScriptsDir="$(which debuerreotype-init)"
-debuerreotypeScriptsDir="$(readlink -f "$debuerreotypeScriptsDir")"
+debuerreotypeScriptsDir="$(readlink -vf "$debuerreotypeScriptsDir")"
 debuerreotypeScriptsDir="$(dirname "$debuerreotypeScriptsDir")"
 
 source "$debuerreotypeScriptsDir/.constants.sh" \
@@ -36,7 +36,7 @@ suite="${1:-brewmaster}" # http://repo.steampowered.com/steamos/dists/
 
 set -x
 
-outputDir="$(readlink -e "$outputDir")"
+outputDir="$(readlink -ve "$outputDir")"
 
 tmpDir="$(mktemp --directory --tmpdir "debuerreotype.$suite.XXXXXXXXXX")"
 trap "$(printf 'rm -rf %q' "$tmpDir")" EXIT
@@ -95,6 +95,12 @@ initArgs+=(
 rootfsDir="$tmpDir/rootfs"
 debuerreotype-init "${initArgs[@]}" "$rootfsDir" "$suite" "$mirror"
 
+debuerreotype-minimizing-config "$rootfsDir"
+
+echo "deb $mirror $suite main contrib non-free" | tee "$rootfsDir/etc/apt/sources.list"
+debuerreotype-apt-get "$rootfsDir" update -qq
+
+debuerreotype-recalculate-epoch "$rootfsDir"
 epoch="$(< "$rootfsDir/debuerreotype-epoch")"
 touch_epoch() {
 	while [ "$#" -gt 0 ]; do
@@ -102,12 +108,8 @@ touch_epoch() {
 		touch --no-dereference --date="@$epoch" "$f"
 	done
 }
-
-echo "deb $mirror $suite main contrib non-free" | tee "$rootfsDir/etc/apt/sources.list"
 touch_epoch "$rootfsDir/etc/apt/sources.list"
 
-debuerreotype-minimizing-config "$rootfsDir"
-debuerreotype-apt-get "$rootfsDir" update -qq
 debuerreotype-apt-get "$rootfsDir" dist-upgrade -yqq
 
 # make a couple copies of rootfs so we can create other variants
@@ -120,7 +122,7 @@ fi
 
 # prefer iproute2 if it exists
 iproute=iproute2
-if ! debuerreotype-chroot rootfs apt-get install -qq -s iproute2 &> /dev/null; then
+if ! debuerreotype-apt-get "$rootfsDir" install -qq -s iproute2 &> /dev/null; then
 	# poor wheezy
 	iproute=iproute
 fi
@@ -173,9 +175,12 @@ create_artifacts() {
 	touch_epoch "$targetBase.tar.xz.sha256"
 
 	debuerreotype-chroot "$rootfs" dpkg-query -W > "$targetBase.manifest"
+	echo "$suite" > "$targetBase.apt-dist"
+	echo "$dpkgArch" > "$targetBase.dpkg-arch"
 	echo "$epoch" > "$targetBase.debuerreotype-epoch"
+	echo "$variant" > "$targetBase.debuerreotype-variant"
 	debuerreotype-version > "$targetBase.debuerreotype-version"
-	touch_epoch "$targetBase.manifest" "$targetBase.debuerreotype-epoch" "$targetBase.debuerreotype-version"
+	touch_epoch "$targetBase".{manifest,apt-dist,dpkg-arch,debuerreotype-*}
 
 	for f in debian_version os-release apt/sources.list; do
 		targetFile="$targetBase.$(basename "$f" | sed -r "s/[^a-zA-Z0-9_-]+/-/g")"
