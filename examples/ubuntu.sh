@@ -10,19 +10,28 @@ debuerreotypeScriptsDir="$(readlink -vf "$debuerreotypeScriptsDir")"
 debuerreotypeScriptsDir="$(dirname "$debuerreotypeScriptsDir")"
 
 source "$debuerreotypeScriptsDir/.constants.sh" \
+	--flags 'eol' \
 	--flags 'arch:' \
+	--flags 'include:,exclude:' \
 	-- \
-	'[--arch=<arch>] <output-dir> <suite>' \
+	'[--eol] [--arch=<arch>] <output-dir> <suite>' \
 	'output xenial
+--eol --arch armhf output cosmic
 --arch arm64 output bionic'
 
 eval "$dgetopt"
+eol=
+include=
+exclude=
 arch=
 while true; do
 	flag="$1"; shift
 	dgetopt-case "$flag"
 	case "$flag" in
+		--eol) eol=1 ;; # for using "old-releases.ubuntu.com"
 		--arch) arch="$1"; shift ;; # for adding "--arch" to debuerreotype-init
+		--include) include="${include:+$include,}$1"; shift ;;
+		--exclude) exclude="${exclude:+$exclude,}$1"; shift ;;
 		--) break ;;
 		*) eusage "unknown flag '$flag'" ;;
 	esac
@@ -46,25 +55,44 @@ exportDir="$tmpDir/output"
 archDir="$exportDir/ubuntu/$dpkgArch"
 tmpOutputDir="$archDir/$suite"
 
-case "$dpkgArch" in
-	amd64 | i386)
-		mirror='http://archive.ubuntu.com/ubuntu'
-		secmirror='http://security.ubuntu.com/ubuntu'
-		;;
+if [ -z "$eol" ]; then
+	case "$dpkgArch" in
+		amd64 | i386)
+			mirror='http://archive.ubuntu.com/ubuntu'
+			secmirror='http://security.ubuntu.com/ubuntu'
+			;;
 
-	*)
-		mirror='http://ports.ubuntu.com/ubuntu-ports'
-		secmirror="$mirror" # no separate security mirror for ports
-		;;
-esac
+		*)
+			mirror='http://ports.ubuntu.com/ubuntu-ports'
+			secmirror="$mirror" # no separate security mirror for ports
+			;;
+	esac
+else
+	mirror='http://old-releases.ubuntu.com/ubuntu'
+	secmirror="$mirror" # no separate security mirror for old releases
+fi
 
 initArgs=(
 	--arch "$dpkgArch"
 	--non-debian
 )
 
-keyring='/usr/share/keyrings/ubuntu-archive-keyring.gpg'
-initArgs+=( --keyring "$keyring" )
+export GNUPGHOME="$tmpDir/gnupg"
+mkdir -p "$GNUPGHOME"
+keyring="$tmpDir/ubuntu-archive-$suite-keyring.gpg"
+case "$suite/$dpkgArch" in
+warty/*|hoary/*|breezy/*|dapper/*|edgy/*|feisty/hppa)
+	initArgs+=( --no-check-gpg )
+	;;
+*)
+	# check against all releases (ie, combine both "ubuntu-archive-keyring.gpg" and "ubuntu-archive-removed-keys.gpg"), since we cannot really know whether the target release became EOL later than the snapshot date we are targeting
+	gpg --batch --no-default-keyring --keyring "$keyring" --import \
+		/usr/share/keyrings/ubuntu-archive-keyring.gpg \
+		/usr/share/keyrings/ubuntu-archive-removed-keys.gpg
+	initArgs+=( --keyring "$keyring" )
+	include="${include:+$include,}gpgv"
+	;;
+esac
 
 mkdir -p "$tmpOutputDir"
 
@@ -81,7 +109,7 @@ elif [ -f "$keyring" ] && wget -O "$tmpOutputDir/Release.gpg" "$mirror/dists/$su
 		"$tmpOutputDir/Release.gpg" \
 		"$tmpOutputDir/Release"
 	[ -s "$tmpOutputDir/Release" ]
-else
+elif [ -f "$keyring" ]; then
 	rm -f "$tmpOutputDir/InRelease" "$tmpOutputDir/Release.gpg" "$tmpOutputDir/Release" # remove wget leftovers
 	echo >&2 "error: failed to fetch either InRelease or Release.gpg+Release for '$suite' (from '$mirror')"
 	exit 1
@@ -94,6 +122,19 @@ initArgs+=(
 	#  - https://github.com/debuerreotype/docker-debian-artifacts/issues/60#issuecomment-461426406
 	--no-merged-usr
 )
+
+# Debian may not support the latest Ubuntu release yet.
+script="${DEBOOTSTRAP_DIR:-/usr/share/debootstrap}/scripts/$suite"
+if [ ! -e "$script" ]; then
+	initArgs+=(--debootstrap-script "${script%/*}/gutsy")
+fi
+
+if [ -n "$include" ]; then
+	initArgs+=( --include="$include" )
+fi
+if [ -n "$exclude" ]; then
+	initArgs+=( --exclude="$exclude" )
+fi
 
 rootfsDir="$tmpDir/rootfs"
 debuerreotype-init "${initArgs[@]}" "$rootfsDir" "$suite" "$mirror"
@@ -137,7 +178,16 @@ if ! debuerreotype-apt-get "$rootfsDir" install -qq -s iproute2 &> /dev/null; th
 	# poor wheezy
 	iproute=iproute
 fi
-debuerreotype-apt-get "$rootfsDir" install -y --no-install-recommends iputils-ping $iproute
+ping=iputils-ping
+if ! (debuerreotype-chroot "$rootfsDir" apt-cache policy iputils-ping 2>/dev/null | grep -E '^ [ *]{3} [0-9].*'); then
+	# iputils-ping:i386 became unavailable since Focal.
+	ping=
+fi
+aptArgs=()
+if dpkg --compare-versions "$aptVersion" '>=' '0.6.45'; then
+	aptArgs+=(--no-install-recommends)
+fi
+debuerreotype-apt-get "$rootfsDir" install -y "${aptArgs[@]}" $ping $iproute
 
 debuerreotype-slimify "$rootfsDir"-slim
 
