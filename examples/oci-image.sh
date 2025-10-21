@@ -68,6 +68,7 @@ unset goArch
 goArm=
 case "$dpkgArch" in
 	amd64 | arm64 | s390x | riscv64) goArch="$dpkgArch" ;;
+	amd64v*) goArch="${dpkgArch%v*}" ;;
 	armel | arm) goArch='arm'; goArm='5' ;;
 	armhf) goArch='arm'; if grep -qi raspbian "$sourceDir/rootfs.os-release"; then goArm='6'; else goArm='7'; fi ;;
 	i386) goArch='386' ;;
