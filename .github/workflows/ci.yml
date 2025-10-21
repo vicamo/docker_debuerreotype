@@ -93,6 +93,12 @@ jobs:
           - { SUITE: stable,    CODENAME: "", TIMESTAMP: "today 00:00:00", SHA256: "" }
           - { SUITE: oldstable, CODENAME: "", TIMESTAMP: "today 00:00:00", SHA256: "" }
 
+          # Dockerfile checksums
+          - { DISTRO: dockerfile, SUITE: stretch, TIMESTAMP: "2017-05-08T00:00:00Z", SHA256: 7b295f07692e13e3aaec0709e38f5fbfe3b7153d024c556430be70fd845fc174 }
+          - { DISTRO: dockerfile, SUITE: jessie,  TIMESTAMP: "2017-05-08T00:00:00Z", SHA256: 5d1daeb8e817a56d28b65b4fa5eb09ebb1963299a0ccfd2a37c07560779653cd }
+          # README.md checksum
+          - { DISTRO: readme,     SUITE: stretch, TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: ac026b83d085e1e516e21865a92c443529119264a302bcefc60f0a8613e922ad }
+
           - { DISTRO: ubuntu, SUITE: eol, CODENAME: breezy }
           - { DISTRO: ubuntu, SUITE: eol, CODENAME: gutsy }
           - { DISTRO: ubuntu, SUITE: bionic }
