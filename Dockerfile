@@ -1,15 +1,15 @@
 # docker run --cap-add SYS_ADMIN --cap-drop SETFCAP --tmpfs /tmp:dev,exec,suid,noatime ...
 
 # bootstrapping a new architecture?
-#   ./scripts/debuerreotype-init /tmp/docker-rootfs bullseye now
+#   ./scripts/debuerreotype-init /tmp/docker-rootfs trixie now
 #   ./scripts/debuerreotype-minimizing-config /tmp/docker-rootfs
-#   ./scripts/debuerreotype-debian-sources-list /tmp/docker-rootfs bullseye
-#   ./scripts/debuerreotype-tar /tmp/docker-rootfs - | docker import - debian:bullseye-slim
+#   ./scripts/debuerreotype-debian-sources-list /tmp/docker-rootfs trixie
+#   ./scripts/debuerreotype-tar /tmp/docker-rootfs - | docker import - debian:trixie-slim
 # alternate:
-#   debootstrap --variant=minbase bullseye /tmp/docker-rootfs
-#   tar -cC /tmp/docker-rootfs . | docker import - debian:bullseye-slim
+#   debootstrap --variant=minbase trixie /tmp/docker-rootfs
+#   tar -cC /tmp/docker-rootfs . | docker import - debian:trixie-slim
 # (or your own favorite set of "debootstrap" commands to create a base image for building this one FROM)
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 RUN set -eux; \
 	apt-get update; \
@@ -33,10 +33,10 @@ RUN echo 'hsts=0' >> "$WGETRC"
 # https://github.com/debuerreotype/debuerreotype/issues/100
 # https://tracker.debian.org/pkg/distro-info-data
 # http://snapshot.debian.org/package/distro-info-data/
-# http://snapshot.debian.org/package/distro-info-data/0.63/
+# http://snapshot.debian.org/package/distro-info-data/0.66/
 RUN set -eux; \
-	wget -O distro-info-data.deb 'http://snapshot.debian.org/archive/debian/20241017T144246Z/pool/main/d/distro-info-data/distro-info-data_0.63_all.deb'; \
-	echo 'b82dbfc1539ee1cef96c4d10e93c6e8661b6e638 *distro-info-data.deb' | sha1sum --strict --check -; \
+	wget -O distro-info-data.deb 'http://snapshot.debian.org/archive/debian/20250721T022532Z/pool/main/d/distro-info-data/distro-info-data_0.66_all.deb'; \
+	echo '2d083730bd927b1ccb452d93d5d01f31e69d8682 *distro-info-data.deb' | sha1sum --strict --check -; \
 	apt-get install -y ./distro-info-data.deb; \
 	rm distro-info-data.deb; \
 	[ -s /usr/share/distro-info/debian.csv ]
@@ -63,10 +63,13 @@ RUN set -eux; \
 	patch --input=debootstrap-download-main.patch /usr/share/debootstrap/functions; \
 	rm debootstrap-download-main.patch
 
+# this env is a defined interface used by other scripts
+ENV DEBUERREOTYPE_DIRECTORY /opt/debuerreotype
+
 # see ".dockerignore"
-COPY . /opt/debuerreotype
+COPY . $DEBUERREOTYPE_DIRECTORY
 RUN set -eux; \
-	cd /opt/debuerreotype/scripts; \
+	cd "$DEBUERREOTYPE_DIRECTORY/scripts"; \
 	for f in debuerreotype-*; do \
 		ln -svL "$PWD/$f" "/usr/local/bin/$f"; \
 	done; \
@@ -77,6 +80,8 @@ RUN set -eux; \
 WORKDIR /tmp
 
 # a few example md5sum values for amd64:
+
+# TODO update these examples, because they don't actually work anymore 😭
 
 # debuerreotype-init --keyring /usr/share/keyrings/debian-archive-removed-keys.gpg test-stretch stretch 2017-05-08T00:00:00Z
 # debuerreotype-tar test-stretch test-stretch.tar
