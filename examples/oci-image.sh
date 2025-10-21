@@ -52,6 +52,7 @@ dpkgArch="$(< "$sourceDir/rootfs.dpkg-arch")"
 unset goArch
 case "$dpkgArch" in
 	amd64 | arm64 | riscv64 | s390x) goArch="$dpkgArch" ;;
+	amd64v*) goArch="${dpkgArch%v*}" ;;
 	armhf | armel | arm) goArch='arm' ;;
 	i386) goArch='386' ;;
 	mips64el | ppc64el) goArch="${dpkgArch%el}le" ;;
@@ -62,6 +63,11 @@ esac
 # https://github.com/opencontainers/image-spec/pull/1172
 ociVariant=
 case "$goArch" in
+	amd64)
+		case "$dpkgArch" in
+			amd64v*) ociVariant="${dpkgArch#amd64}" ;;
+		esac
+		;;
 	arm64) ociVariant='v8' ;; # https://wiki.debian.org/ArchitectureSpecificsMemo#arm64
 	arm)
 		case "$dpkgArch" in
@@ -80,7 +86,7 @@ esac
 unset bashbrewArch
 case "$goArch" in
 	386) bashbrewArch='i386' ;;
-	amd64 | mips64le | ppc64le | riscv64 | s390x) bashbrewArch="$goArch" ;;
+	amd64* | mips64le | ppc64le | riscv64 | s390x) bashbrewArch="$goArch" ;;
 	arm) bashbrewArch="${goArch}32${ociVariant}" ;;
 	arm64) bashbrewArch="${goArch}v8" ;;
 	*) echo >&2 "error: unknown Go architecture: '$goArch'"; exit 1 ;;

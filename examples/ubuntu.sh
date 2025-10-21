@@ -43,7 +43,7 @@ archDir="$exportDir/ubuntu/$dpkgArch"
 tmpOutputDir="$archDir/$suite"
 
 case "$dpkgArch" in
-	amd64 | i386)
+	amd64* | i386)
 		mirror='http://archive.ubuntu.com/ubuntu'
 		secmirror='http://security.ubuntu.com/ubuntu'
 		;;
