@@ -109,6 +109,7 @@ if [ -n "$ports" ]; then
 	)
 fi
 
+# TODO decouple this from GnuPG 🙈 (does "sop" have everything we need?)
 export GNUPGHOME="$tmpDir/gnupg"
 mkdir -p "$GNUPGHOME"
 keyring="$tmpDir/debian-archive-$suite-keyring.gpg"
@@ -136,6 +137,7 @@ fi
 
 mkdir -p "$tmpOutputDir"
 
+# TODO decouple this from gpgv (perhaps lean on sopv so the underlying implementation matters less?)
 mirror="$(< "$archDir/snapshot-url")"
 if [ -f "$keyring" ] && wget -O "$tmpOutputDir/InRelease" "$mirror/dists/$suite/InRelease"; then
 	gpgv \

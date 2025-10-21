@@ -159,6 +159,7 @@ fi
 echo "$epoch" > "$targetDir/debuerreotype-epoch"
 
 if [ -n "$addGpgvIgnore" ]; then
+	# TODO in order for this to work, we *also* need to explicitly install "gpgv" (it's transitively-essential in bookworm and gone in trixie+)
 	debuerreotype-gpgv-ignore-expiration-config "$targetDir"
 fi
 
