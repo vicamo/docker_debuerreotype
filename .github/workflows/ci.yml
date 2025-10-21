@@ -19,7 +19,7 @@ jobs:
 
   https:
     name: Ensure no-TLS snapshot usage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Ensure http://snapshot.debian.org (https://github.com/debuerreotype/debuerreotype/pull/119#issuecomment-901457009)
@@ -63,35 +63,41 @@ jobs:
     strategy:
       matrix:
         include:
-          - { SUITE: stable,    CODENAME: jessie,  TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 6bec1ad527391127159338d2e82e7bcd5d29dc95d766d6aa374f3b3e850b9d76 }
-          - { SUITE: jessie,    CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 6bec1ad527391127159338d2e82e7bcd5d29dc95d766d6aa374f3b3e850b9d76 }
-          - { SUITE: testing,   CODENAME: stretch, TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 6dac0c6f25953747754421d258351e19ba06b2a9cf5076fa9b0bad470cba2992 }
-          - { SUITE: stretch,   CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 6dac0c6f25953747754421d258351e19ba06b2a9cf5076fa9b0bad470cba2992 }
-          - { SUITE: unstable,  CODENAME: sid,     TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 8d0e577a6bf851507bb9621c638c12b3e8ee0408519d33a51af41771fd30a8bc }
-          - { SUITE: sid,       CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 8d0e577a6bf851507bb9621c638c12b3e8ee0408519d33a51af41771fd30a8bc }
-          - { SUITE: oldstable, CODENAME: wheezy,  TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 03f69a953780cf00e4d948e510316a8c921c3cab3b29ca8875a66ba167ce8685 }
-          - { SUITE: wheezy,    CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 03f69a953780cf00e4d948e510316a8c921c3cab3b29ca8875a66ba167ce8685 }
+          - { SUITE: stable,    CODENAME: jessie,  TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: c099dbc9579aff85ad118e3bfcf850b9ddea73ad69525711c52e2bd28030186c }
+          - { SUITE: jessie,    CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: c099dbc9579aff85ad118e3bfcf850b9ddea73ad69525711c52e2bd28030186c }
+          - { SUITE: testing,   CODENAME: stretch, TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 0549fb820e8cbefda22fc72a3607f4a7ead622bfc2fd1f047caac0692d3239e5 }
+          - { SUITE: stretch,   CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 0549fb820e8cbefda22fc72a3607f4a7ead622bfc2fd1f047caac0692d3239e5 }
+          - { SUITE: unstable,  CODENAME: sid,     TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: b3fe1c7f347ad60739084ca9b8349f43eeffe6533291a81736174cc9d19d194d }
+          - { SUITE: sid,       CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: b3fe1c7f347ad60739084ca9b8349f43eeffe6533291a81736174cc9d19d194d }
+          - { SUITE: oldstable, CODENAME: wheezy,  TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: ad4e0014b058af4d33476156190794dd3f13f07c3530fbc8eaab677cf10aaa50 }
+          - { SUITE: wheezy,    CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: ad4e0014b058af4d33476156190794dd3f13f07c3530fbc8eaab677cf10aaa50 }
 
           # EOL suites testing
-          - { SUITE: eol, CODENAME: etch,  TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 5d423f735b56944fe114a4d7e09defe68cc2f038c03e1a317fa2b22094cf4add }
-          - { SUITE: eol, CODENAME: lenny, TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 7ed0cc3787708dc4e18eb2b0c145942e153dd0b5fd7dbc6a5a0bc0f797424d00 }
-          - { SUITE: eol, CODENAME: woody, ARCH: i386, TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: f80833896e141fbfebf8c91e79da2ccca1bdeb8f8ecc4e05dd33531c32857e0f }
-          - { SUITE: eol, CODENAME: jessie, TIMESTAMP: "2021-03-01T00:00:00Z", SHA256: 0fbf1bcba51788e82abeee22c722937fcdccb7691acbe9a006b5e2e1e9269ced }
+          - { SUITE: eol, CODENAME: etch,  TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 8210bd151b21d785e0c0674152d6c506b5e4dca66b445ffefac43144c2e97d30 }
+          - { SUITE: eol, CODENAME: lenny, TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: fd3adf5e8a72784d42f4974bf188fc0adf78b89fdd5234e2df38fb8151e70b31 }
+          - { SUITE: eol, CODENAME: woody, ARCH: i386, TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: fc26d66a510fec2140859bfa9e85016b61231de2fe70287ce0c1a474e5b721cc }
+          - { SUITE: eol, CODENAME: jessie, TIMESTAMP: "2021-03-01T00:00:00Z", SHA256: 7e89b60c07dbab9b331ee9e6390deb3d88e98af673b89b0711066a6a1865defb }
 
           # deb822 / usr-is-merged testing
-          - { SUITE: unstable, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: 4c01a9e9dd4b27cf90946544060da0b61513323e57cd85a23a11e1d17ae871d8 }
-          - { SUITE: bookworm, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: 3d987ea3627beb48477a938869b6533afa85b7a3523a1dc85adab47ce2b7ebc3 }
-          - { SUITE: bullseye, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: 34b966f822739d7e60084ab2510be0c517630e664331a6778d63f102830e0b92 }
+          - { SUITE: unstable, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: 16cb8ae5f2bb6c08627172b2a64027478aa6dd78b588fc6a4b3fcc59338e448a }
+          - { SUITE: bookworm, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: 44854026cc9e52f902171b9e40d96f448e72043ae1f6d7f9a3cc710c536aa666 }
+          - { SUITE: bullseye, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: 761b6b66c7e1d9e0fa10c2578a4258fa6ff5c473931a2346b8cf75404b666469 }
 
           # qemu-debootstrap testing
-          - { ARCH: arm64,   SUITE: jessie,   CODENAME: "", TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: e46787693f59f29613ebea25d89e52c51f5744a4917ff65d98791d0fe7ffb8a3 }
-          - { ARCH: sh4,     SUITE: unstable, CODENAME: "", TIMESTAMP: "2022-02-01T00:00:00Z", SHA256: 4e1a8ab49496787a18f65d4c591b9b2548fa9f2b35b62d95ade194209b16c011 }
-          - { ARCH: riscv64, SUITE: unstable, CODENAME: "", TIMESTAMP: "2022-02-01T00:00:00Z", SHA256: da9282e5f748c3b8bb52eb13b31e5d72f31dcb14af95d41f30fc03660590230e }
+          - { ARCH: arm64,   SUITE: jessie,   CODENAME: "", TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: ebe6aa294a28caefd0acc5b42fc60e4ab8cc9c03fb6d2184b48cb2f1084b5e66 }
+          - { ARCH: sh4,     SUITE: unstable, CODENAME: "", TIMESTAMP: "2022-02-01T00:00:00Z", SHA256: 2fd0500e00299622fc568783d4f19f44a26921ecc9ea9d2ba4d9f152e90c169e }
+          - { ARCH: riscv64, SUITE: unstable, CODENAME: "", TIMESTAMP: "2022-02-01T00:00:00Z", SHA256: 658ca6bd3c6174b3876a18fbe4b08dcdbb865f94e54b29458485ca75b20dda49 }
 
           # a few entries for "today" to try and catch issues like https://github.com/debuerreotype/debuerreotype/issues/41 sooner
           - { SUITE: unstable,  CODENAME: "", TIMESTAMP: "today 00:00:00", SHA256: "" }
           - { SUITE: stable,    CODENAME: "", TIMESTAMP: "today 00:00:00", SHA256: "" }
           - { SUITE: oldstable, CODENAME: "", TIMESTAMP: "today 00:00:00", SHA256: "" }
+
+          # Dockerfile checksums
+          - { DISTRO: dockerfile, SUITE: stretch, TIMESTAMP: "2017-05-08T00:00:00Z", SHA256: 7b295f07692e13e3aaec0709e38f5fbfe3b7153d024c556430be70fd845fc174 }
+          - { DISTRO: dockerfile, SUITE: jessie,  TIMESTAMP: "2017-05-08T00:00:00Z", SHA256: 5d1daeb8e817a56d28b65b4fa5eb09ebb1963299a0ccfd2a37c07560779653cd }
+          # README.md checksum
+          - { DISTRO: readme,     SUITE: stretch, TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: ac026b83d085e1e516e21865a92c443529119264a302bcefc60f0a8613e922ad }
 
           - { DISTRO: ubuntu, SUITE: eol, CODENAME: breezy }
           - { DISTRO: ubuntu, SUITE: eol, CODENAME: gutsy }
@@ -103,9 +109,10 @@ jobs:
           - { DISTRO: ubuntu, SUITE: noble }
       fail-fast: false
     name: Test ${{ matrix.DISTRO && format('{0} ', matrix.DISTRO) }}${{ matrix.SUITE }}${{ matrix.CODENAME && format(' ({0})', matrix.CODENAME) }}${{ matrix.ARCH && format(' [{0}]', matrix.ARCH) }}${{ matrix.TIMESTAMP && format(' at {0}', matrix.TIMESTAMP) }}
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     env: ${{ matrix }}
     steps:
+
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
@@ -122,12 +129,15 @@ jobs:
 
       - name: Prepare Environment
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -yqq binfmt-support qemu-user-static
+          if [ -n "${ARCH:-}" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -yqq binfmt-support qemu-user-static
+          fi
           docker run -d --name squignix --restart always tianon/squignix
           git clone --depth 1 https://github.com/tianon/pgp-happy-eyeballs.git ~/phe
           ~/phe/hack-my-builds.sh
           rm -rf ~/phe
+
       - name: Build
         env:
           IMAGE: ${{ fromJSON(needs.image.outputs.metadata)['image.name'] }}

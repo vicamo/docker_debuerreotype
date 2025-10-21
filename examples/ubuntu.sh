@@ -85,10 +85,16 @@ warty/*|hoary/*|breezy/*|dapper/*|edgy/*|feisty/hppa)
 	initArgs+=( --no-check-gpg )
 	;;
 *)
+	# https://salsa.debian.org/release-team/debian-archive-keyring/-/commit/17c653ad964a3e81519f83e1d3a0704be737e4f6
+	if [ -s /usr/share/keyrings/ubuntu-archive-keyring.pgp ]; then
+		ext='pgp'
+	else
+		ext='gpg'
+	fi
 	# check against all releases (ie, combine both "ubuntu-archive-keyring.gpg" and "ubuntu-archive-removed-keys.gpg"), since we cannot really know whether the target release became EOL later than the snapshot date we are targeting
 	gpg --batch --no-default-keyring --keyring "$keyring" --import \
-		/usr/share/keyrings/ubuntu-archive-keyring.gpg \
-		/usr/share/keyrings/ubuntu-archive-removed-keys.gpg
+		"/usr/share/keyrings/ubuntu-archive-keyring.$ext" \
+		"/usr/share/keyrings/ubuntu-archive-removed-keys.$ext"
 	initArgs+=( --keyring "$keyring" )
 	include="${include:+$include,}gpgv"
 	;;
