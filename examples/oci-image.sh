@@ -4,23 +4,7 @@ set -Eeuo pipefail
 # create https://github.com/opencontainers/image-spec/blob/v1.0.1/image-layout.md (+ Docker's "manifest.json") from the output of "debian.sh"
 # the resulting file is suitable for "ctr image import" or "docker load"
 
-# (this can *technically* run via "docker-run.sh", but IMO it's much easier to run unprivileged on the host)
-# RUN apt-get update \
-# 	&& apt-get install -y jq pigz \
-# 	&& rm -rf /var/lib/apt/lists/*
-
-thisDir="$(readlink -vf "$BASH_SOURCE")"
-thisDir="$(dirname "$thisDir")"
-
-if [ -x "$thisDir/../scripts/debuerreotype-init" ]; then
-	debuerreotypeScriptsDir="$(dirname "$thisDir")/scripts"
-else
-	debuerreotypeScriptsDir="$(which debuerreotype-init)"
-	debuerreotypeScriptsDir="$(readlink -vf "$debuerreotypeScriptsDir")"
-	debuerreotypeScriptsDir="$(dirname "$debuerreotypeScriptsDir")"
-fi
-
-source "$debuerreotypeScriptsDir/.constants.sh" \
+source "$DEBUERREOTYPE_DIRECTORY/scripts/.constants.sh" \
 	--flags 'meta:' \
 	-- \
 	'<target-file.tar> <source-directory>' \
@@ -51,7 +35,7 @@ tempDir="$(mktemp -d)"
 trap "$(printf 'rm -rf %q' "$tempDir")" EXIT
 
 mkdir -p "$tempDir/oci/blobs/sha256"
-jq -ncS '{ imageLayoutVersion: "1.0.0" }' > "$tempDir/oci/oci-layout"
+jq --null-input --compact-output '{ imageLayoutVersion: "1.0.0" }' > "$tempDir/oci/oci-layout"
 
 version="$(< "$sourceDir/rootfs.debuerreotype-version")"
 epoch="$(< "$sourceDir/rootfs.debuerreotype-epoch")"
@@ -64,26 +48,51 @@ export suite
 variant="$(< "$sourceDir/rootfs.debuerreotype-variant")"
 
 dpkgArch="$(< "$sourceDir/rootfs.dpkg-arch")"
+
 unset goArch
-goArm=
 case "$dpkgArch" in
-	amd64 | arm64 | s390x | riscv64) goArch="$dpkgArch" ;;
+	amd64 | arm64 | riscv64 | s390x) goArch="$dpkgArch" ;;
 	amd64v*) goArch="${dpkgArch%v*}" ;;
-	armel | arm) goArch='arm'; goArm='5' ;;
-	armhf) goArch='arm'; if grep -qi raspbian "$sourceDir/rootfs.os-release"; then goArm='6'; else goArm='7'; fi ;;
+	armhf | armel | arm) goArch='arm' ;;
 	i386) goArch='386' ;;
 	mips64el | ppc64el) goArch="${dpkgArch%el}le" ;;
 	*) echo >&2 "error: unknown dpkg architecture: '$dpkgArch'"; exit 1 ;;
 esac
+
+# https://wiki.debian.org/ArchitectureSpecificsMemo#Architecture_baselines
+# https://github.com/opencontainers/image-spec/pull/1172
+ociVariant=
+case "$goArch" in
+	amd64)
+		case "$dpkgArch" in
+			amd64v*) ociVariant="${dpkgArch#amd64}" ;;
+		esac
+		;;
+	arm64) ociVariant='v8' ;; # https://wiki.debian.org/ArchitectureSpecificsMemo#arm64
+	arm)
+		case "$dpkgArch" in
+			armel) ociVariant='v5' ;; # https://wiki.debian.org/ArchitectureSpecificsMemo#armel
+			armhf)
+				if grep -qi raspbian "$sourceDir/rootfs.os-release"; then
+					ociVariant='v6' # this is why Raspbian exists in the first place 😅
+				else
+					ociVariant='v7' # https://wiki.debian.org/ArchitectureSpecificsMemo#armhf
+				fi
+				;;
+		esac
+		;;
+esac
+
 unset bashbrewArch
 case "$goArch" in
 	386) bashbrewArch='i386' ;;
 	amd64 | mips64le | ppc64le | riscv64 | s390x) bashbrewArch="$goArch" ;;
-	arm) bashbrewArch="${goArch}32v${goArm}" ;;
+	arm) bashbrewArch="${goArch}32${ociVariant}" ;;
 	arm64) bashbrewArch="${goArch}v8" ;;
 	*) echo >&2 "error: unknown Go architecture: '$goArch'"; exit 1 ;;
 esac
-export dpkgArch goArch goArm bashbrewArch
+
+export dpkgArch goArch ociVariant bashbrewArch
 
 osID="$(id="$(grep -E '^ID=' "$sourceDir/rootfs.os-release")" && eval "$id" && echo "${ID:-}")" || : # "debian", "raspbian", "ubuntu", etc
 : "${osID:=debian}" # if for some reason the above fails, fall back to "debian"
@@ -110,7 +119,7 @@ mv "$tempDir/rootfs.tar.gz" "$tempDir/oci/blobs/rootfs.tar.gz"
 ln -sfT ../rootfs.tar.gz "$tempDir/oci/blobs/sha256/$rootfsSha256"
 
 script='debian.sh'
-if [ -x "$thisDir/$osID.sh" ]; then
+if [ -x "$DEBUERREOTYPE_DIRECTORY/examples/$osID.sh" ]; then
 	script="$osID.sh"
 fi
 export script
@@ -118,7 +127,7 @@ export script
 echo >&2 "generating config ..."
 
 # https://github.com/opencontainers/image-spec/blob/v1.0.1/config.md
-jq -ncS '
+jq --null-input --compact-output '
 	{
 		config: {
 			Env: [ "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" ],
@@ -153,13 +162,9 @@ jq -ncS '
 		os: "linux",
 		architecture: env.goArch,
 	}
-	+ if env.goArch == "arm64" then
-		{ variant: "v8" }
-	elif env.goArch == "arm" then
-		{ variant: ( "v" + env.goArm ) }
-	else
-		{}
-	end
+	| if env.ociVariant != "" then
+		.variant = env.ociVariant
+	else . end
 ' > "$tempDir/config.json"
 configSize="$(stat --format='%s' "$tempDir/config.json")"
 configSha256="$(_sha256 "$tempDir/config.json")"
@@ -169,21 +174,21 @@ mv "$tempDir/config.json" "$tempDir/oci/blobs/image-config.json"
 ln -sfT ../image-config.json "$tempDir/oci/blobs/sha256/$configSha256"
 
 # https://github.com/opencontainers/image-spec/blob/v1.0.1/manifest.md
-jq -ncS '
+jq --null-input --compact-output '
 	{
 		schemaVersion: 2,
 		mediaType: "application/vnd.oci.image.manifest.v1+json",
 		config: {
 			mediaType: "application/vnd.oci.image.config.v1+json",
-			size: (env.configSize | tonumber),
 			digest: ( "sha256:" + env.configSha256 ),
+			size: (env.configSize | tonumber),
 			data: env.configData,
 		},
 		layers: [
 			{
 				mediaType: "application/vnd.oci.image.layer.v1.tar+gzip",
-				size: (env.rootfsSize | tonumber),
 				digest: ( "sha256:" + env.rootfsSha256 ),
+				size: (env.rootfsSize | tonumber),
 			}
 		],
 		# TODO add some interesting annotations here
@@ -201,16 +206,16 @@ export tag="$suite${variant:+-$variant}" # "buster", "buster-slim", etc.
 export image="$repo:$tag"
 
 # https://github.com/opencontainers/image-spec/blob/v1.0.1/image-index.md
-platform="$(jq -c 'with_entries(select(.key == ([ "os", "architecture", "variant" ][])))' "$tempDir/oci/blobs/sha256/$configSha256")"
-jq -ncS --argjson platform "$platform" '
+platform="$(jq --compact-output 'with_entries(select(.key == ([ "os", "architecture", "variant" ][])))' "$tempDir/oci/blobs/sha256/$configSha256")"
+jq --null-input --compact-output --argjson platform "$platform" '
 	{
 		schemaVersion: 2,
 		mediaType: "application/vnd.oci.image.index.v1+json",
 		manifests: [
 			{
 				mediaType: "application/vnd.oci.image.manifest.v1+json",
-				size: (env.manifestSize | tonumber),
 				digest: ( "sha256:" + env.manifestSha256 ),
+				size: (env.manifestSize | tonumber),
 				platform: $platform,
 				annotations: {
 					"io.containerd.image.name": env.image,
@@ -223,7 +228,7 @@ jq -ncS --argjson platform "$platform" '
 ' > "$tempDir/oci/index.json"
 
 # Docker's "manifest.json" so that we can "docker load" the result of this script too
-jq -ncS '
+jq --null-input --compact-output '
 	[
 		{
 			Config: ( "blobs/sha256/" + env.configSha256 ),
@@ -256,7 +261,7 @@ else
 	touch --no-dereference --date="@$epoch" "$target"
 fi
 
-jq -n --argjson platform "$platform" '
+jq --null-input --tab --argjson platform "$platform" '
 	{
 		image: env.image,
 		repo: env.repo,

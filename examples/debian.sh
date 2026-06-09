@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-debuerreotypeScriptsDir="$(which debuerreotype-init)"
-debuerreotypeScriptsDir="$(readlink -vf "$debuerreotypeScriptsDir")"
-debuerreotypeScriptsDir="$(dirname "$debuerreotypeScriptsDir")"
-
-source "$debuerreotypeScriptsDir/.constants.sh" \
+source "$DEBUERREOTYPE_DIRECTORY/scripts/.constants.sh" \
 	--flags 'codename-copy' \
 	--flags 'eol,ports' \
 	--flags 'arch:' \
@@ -77,7 +73,7 @@ for archive in '' security; do
 		mirrorArgs+=( --eol )
 	fi
 	mirrorArgs+=( "@$epoch" "$suite${archive:+-$archive}" "$dpkgArch" main )
-	if ! mirrors="$("$debuerreotypeScriptsDir/.debian-mirror.sh" "${mirrorArgs[@]}")"; then
+	if ! mirrors="$("$DEBUERREOTYPE_DIRECTORY/scripts/.debian-mirror.sh" "${mirrorArgs[@]}")"; then
 		if [ "$archive" = 'security' ]; then
 			# if we fail to find the security mirror, we're probably not security supported (which is ~fine)
 			continue
@@ -182,6 +178,13 @@ if [ -n "$codenameCopy" ] && [ -z "$codename" ]; then
 	exit 1
 fi
 
+if [ "${codename:-$suite}" = 'jessie' ]; then
+	# https://bugs.debian.org/764204 "apt-cache calls fcntl() on 65536 FDs"
+	# https://bugs.launchpad.net/bugs/1332440 "apt-get update very slow when ulimit -n is big"
+	ulimit -n 1024
+	# I contemplated/played with adding this to "debuerreotype-apt-get" instead with a test on aptVersion >= 1.0.9.2 and < 1.1~exp9 (for safety), but it's really needed during debootstrap too ("Configuring apt" / "Setting up apt" hangs), and jessie is the only Debian release affected, so this is a simpler/cleaner test anyhow
+fi
+
 # apply merged-/usr (for bookworm+)
 # https://lists.debian.org/debian-ctte/2022/07/msg00034.html
 # https://github.com/debuerreotype/docker-debian-artifacts/issues/131#issuecomment-1190233249
@@ -235,7 +238,7 @@ fi
 rootfsDir="$tmpDir/rootfs"
 debuerreotype-init "${initArgs[@]}" "$rootfsDir" "$suite" "@$epoch"
 
-aptVersion="$("$debuerreotypeScriptsDir/.apt-version.sh" "$rootfsDir")"
+aptVersion="$("$DEBUERREOTYPE_DIRECTORY/scripts/.apt-version.sh" "$rootfsDir")"
 
 # regenerate sources.list to make the deb822/line-based opinion explicit
 # https://lists.debian.org/debian-devel/2021/11/msg00026.html

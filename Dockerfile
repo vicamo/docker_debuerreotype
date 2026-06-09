@@ -23,6 +23,9 @@ RUN set -eux; \
 		gnupg dirmngr \
 # add "gpgv" explicitly (for now) since it's transitively-essential in bookworm and gone in trixie+
 		gpgv \
+		\
+# used in oci-image.sh
+		jq pigz \
 	; \
 	rm -rf /var/lib/apt/lists/*
 
@@ -33,12 +36,19 @@ RUN echo 'hsts=0' >> "$WGETRC"
 # https://github.com/debuerreotype/debuerreotype/issues/100
 # https://tracker.debian.org/pkg/distro-info-data
 # http://snapshot.debian.org/package/distro-info-data/
-# http://snapshot.debian.org/package/distro-info-data/0.66/
+# http://snapshot.debian.org/package/distro-info-data/0.68/
 RUN set -eux; \
-	wget -O distro-info-data.deb 'http://snapshot.debian.org/archive/debian/20250721T022532Z/pool/main/d/distro-info-data/distro-info-data_0.66_all.deb'; \
-	echo '2d083730bd927b1ccb452d93d5d01f31e69d8682 *distro-info-data.deb' | sha1sum --strict --check -; \
-	apt-get install -y ./distro-info-data.deb; \
+	wget -O distro-info-data.deb 'http://snapshot.debian.org/archive/debian/20251018T202603Z/pool/main/d/distro-info-data/distro-info-data_0.68_all.deb'; \
+	echo 'e9ae181a26235a46ff852cb3445752686b96ea83 *distro-info-data.deb' | sha1sum --strict --check -; \
+	\
+	versionEx="$(dpkg-query --show --showformat '${Version}\n' distro-info-data)"; \
+	versionDl="$(dpkg-deb --field distro-info-data.deb Version)"; \
+	if dpkg --compare-versions "$versionDl" '>>' "$versionEx"; then \
+# only install the version we just downloaded if it's actually newer than the version already installed (it gets frequent backports/stable updates and is installed as a dependency)
+		apt-get install -y ./distro-info-data.deb; \
+	fi; \
 	rm distro-info-data.deb; \
+	\
 	[ -s /usr/share/distro-info/debian.csv ]
 
 # https://bugs.debian.org/929165 :(
