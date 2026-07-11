@@ -101,6 +101,7 @@ jobs:
 
           - { DISTRO: ubuntu, SUITE: eol, CODENAME: breezy }
           - { DISTRO: ubuntu, SUITE: eol, CODENAME: gutsy }
+          - { DISTRO: ubuntu, SUITE: eol, CODENAME: utopic }
           - { DISTRO: ubuntu, SUITE: bionic }
           - { DISTRO: ubuntu, SUITE: eol, CODENAME: cosmic, ARCH: armhf }
           - { DISTRO: ubuntu, SUITE: focal }

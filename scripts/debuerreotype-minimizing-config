@@ -124,7 +124,8 @@ if [ -d "$targetDir/etc/apt/apt.conf.d" ]; then
 	EOF
 	# https://github.com/debuerreotype/debuerreotype/issues/41
 	isDebianJessie="$([ -f "$targetDir/etc/os-release" ] && source "$targetDir/etc/os-release" && [ "${ID:-}" = 'debian' ] && [ "${VERSION_ID:-}" = '8' ] && echo '1')" || :
-	if [ -n "$isDebianJessie" ] || [[ "$aptVersion" == 0.* ]] || dpkg --compare-versions "$aptVersion" '<<' '1.0.9.2~'; then
+	# Ubuntu Utopic's apt (1.0.9.2) and Vivid (1.0.9.7) have a bug where GzipIndexes causes "No Filename: field" errors during dist-upgrade
+	if [ -n "$isDebianJessie" ] || [[ "$aptVersion" == 0.* ]] || dpkg --compare-versions "$aptVersion" '<<' '1.1~'; then
 		cat >> "$targetDir/etc/apt/apt.conf.d/docker-gzip-indexes" <<-'EOF'
 
 			# https://salsa.debian.org/apt-team/apt/commit/b0f4b486e6850c5f98520ccf19da71d0ed748ae4; released in src:apt 1.0.9.2, 2014-10-02
