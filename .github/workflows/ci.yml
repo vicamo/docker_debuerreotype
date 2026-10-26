@@ -128,7 +128,7 @@ jobs:
         with:
           version: v0.12.0
       - name: Download debuerreotype image tarball
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: debuerreotype
           path: /tmp
@@ -163,7 +163,7 @@ jobs:
           fetch-depth: 1
 
       - name: Download debuerreotype image tarball
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: debuerreotype
           path: /tmp
