@@ -1,0 +1,41 @@
+From c731b392160403457d9de88713cf3166b1999c7e Mon Sep 17 00:00:00 2001
+From: You-Sheng Yang <vicamo@gmail.com>
+Date: Mon, 26 Oct 2026 22:05:43 +0800
+Subject: [PATCH] don't setup /proc symlink with stonking and on
+
+With Ubuntu 26.10 Stongking and on, rust-coreutils is now the
+default coreutils-from provider, and it checks /proc/self/exe
+to make sure it matches AppArmor policies. However the
+setup_proc_symlink called for the first stage created /proc
+-> /proc, which fails /bin/true execution in stage two with
+io::ErrorKind::TooManyLinks instead.
+---
+ gutsy | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/gutsy b/gutsy
+index e62ebea..a593437 100644
+--- a/gutsy
++++ b/gutsy
+@@ -157,7 +157,17 @@ first_stage_install () {
+ 	setup_devices
+ 
+         if doing_variant fakechroot || [ "$CONTAINER" = "docker" ]; then
+-		setup_proc_symlink
++		# with Ubuntu 26.10 Stongking and on, rust-coreutils is now the
++		# default coreutils-from provider, and it checks /proc/self/exe
++		# to make sure it matches AppArmor policies. However the
++		# setup_proc_symlink called for the first stage created /proc
++		# -> /proc, which fails /bin/true execution in stage two with
++		# io::ErrorKind::TooManyLinks instead.
++		case "$CODENAME" in
++			gutsy|hardy|intrepid|jaunty|karmic|lucid|maverick|natty|oneiric|precise|quantal|raring|saucy|trusty|utopic|vivid|wily|xenial|yakkety|zesty|artful|bionic|cosmic|disco|eoan|focal|groovy|hirsute|impish|jammy|kinetic|lunar|mantic|noble|oracular|plucky|questing|resolute)
++				setup_proc_symlink
++			;;
++		esac
+ 	fi
+ }
+ 
+-- 
+2.55.0
+

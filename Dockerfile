@@ -60,6 +60,8 @@ RUN set -eux; \
 	apt-get install -y --no-install-recommends ./ubuntu-keyring.deb; \
 	rm ubuntu-keyring.deb
 
+COPY patches/debootstrap-sha512.patch /tmp/debootstrap-sha512.patch
+COPY patches/don-t-setup-proc-symlink-with-stonking-and-on.patch /tmp/don-t-setup-proc-symlink-with-stonking-and-on.patch
 RUN set -eux; \
 	apt-get update; \
 	apt-get install -y --no-install-recommends patch; \
@@ -77,10 +79,15 @@ RUN set -eux; \
 # https://launchpad.net/bugs/2160111
 # https://git.launchpad.net/ubuntu/+source/debootstrap/commit/?id=bd8362834905cab652b890181f07c9fe08a05cb3
 # Ubuntu 26.10+ only ships SHA512 checksums in Release and Packages files
-	wget -O debootstrap-sha512.patch 'https://git.launchpad.net/ubuntu/+source/debootstrap/patch/?id=bd8362834905cab652b890181f07c9fe08a05cb3'; \
-	echo 'df3b1a35a5ac9b6592625fbc8767323d920589b53c228c6c5cf441c19b406a8b *debootstrap-sha512.patch' | sha256sum --strict --check -; \
-	patch --input=debootstrap-sha512.patch /usr/share/debootstrap/functions; \
-	rm debootstrap-sha512.patch
+	echo 'df3b1a35a5ac9b6592625fbc8767323d920589b53c228c6c5cf441c19b406a8b /tmp/debootstrap-sha512.patch' | sha256sum --strict --check -; \
+	patch --input=/tmp/debootstrap-sha512.patch /usr/share/debootstrap/functions; \
+	rm /tmp/debootstrap-sha512.patch; \
+	\
+# https://launchpad.net/bugs/2166212
+# Ubuntu 26.10+ /bin/true from rust-coreutils checks /proc/self/exe
+	echo '0647b3f6ebc185c9786210e833e44d098ea053a57a5bc55660ab1be83d4d9e84 /tmp/don-t-setup-proc-symlink-with-stonking-and-on.patch' | sha256sum --strict --check -; \
+	patch --input=/tmp/don-t-setup-proc-symlink-with-stonking-and-on.patch /usr/share/debootstrap/scripts/gutsy; \
+	rm /tmp/don-t-setup-proc-symlink-with-stonking-and-on.patch
 
 # this env is a defined interface used by other scripts
 ENV DEBUERREOTYPE_DIRECTORY /opt/debuerreotype

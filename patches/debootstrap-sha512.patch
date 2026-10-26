@@ -1,0 +1,42 @@
+From bd8362834905cab652b890181f07c9fe08a05cb3 Mon Sep 17 00:00:00 2001
+From: Finn Rayk Gaertner <finngaertner@protonmail.com>
+Date: Wed, 8 Jul 2026 17:12:55 +0200
+Subject: * Detect and support SHA512 in Release index files (LP: #2160111)
+
+---
+ functions | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/functions b/functions
+index 85ba9b5..006ed61 100644
+--- a/functions
++++ b/functions
+@@ -735,6 +735,16 @@ download_release_indices () {
+ 
+ 		validate_suite "$reldest"
+ 
++		# Select the strongest checksum listed in the Release file
++		if [ "$DEBOOTSTRAP_CHECKSUM_FIELD" != MD5SUM ]; then
++			if grep -qi "^SHA512:" "$reldest" && { in_path sha512sum || in_path sha512; }; then
++				SHA_SIZE=512
++			elif grep -qi "^SHA256:" "$reldest" && { in_path sha256sum || in_path sha256; }; then
++				SHA_SIZE=256
++			fi
++			DEBOOTSTRAP_CHECKSUM_FIELD="SHA$SHA_SIZE"
++		fi
++
+ 		extract_release_components "$reldest"
+ 
+ 		acquirebyhash=$(grep "^Acquire-By-Hash: yes$" "$reldest" || true)
+@@ -1724,7 +1734,7 @@ while (<STDIN>) {
+ 			local m="$2"
+ 			local p="$3"
+ 			shift; shift; shift
+-			LC_ALL=C grep "$gropt" '^$|^Architecture:|^Filename:|^MD5sum:|^Package:|^Priority:|^SHA256:|^Size:|^Version:|^Depends:|^Pre-Depends:' "$p" | pkgdetails_field 1 Package: "$m" "$@"
++			LC_ALL=C grep "$gropt" '^$|^Architecture:|^Filename:|^MD5sum:|^Package:|^Priority:|^SHA256:|^SHA512:|^Size:|^Version:|^Depends:|^Pre-Depends:' "$p" | pkgdetails_field 1 Package: "$m" "$@"
+ 		elif [ "$1" = "FIELD" ]; then
+ 			local f="$2"
+ 			local m="$3"
+-- 
+cgit v1.2.3
+
