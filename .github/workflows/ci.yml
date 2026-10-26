@@ -113,7 +113,7 @@ jobs:
           - { DISTRO: ubuntu, SUITE: jammy }
           - { DISTRO: ubuntu, SUITE: noble }
           - { DISTRO: ubuntu, SUITE: questing, ARCH: amd64v3 }
-          - { DISTRO: ubuntu, SUITE: stonking }
+          - { DISTRO: ubuntu, SUITE: tenacious }
       fail-fast: false
 
     name: Test ${{ matrix.DISTRO && format('{0} ', matrix.DISTRO) }}${{ matrix.SUITE }}${{ matrix.CODENAME && format(' ({0})', matrix.CODENAME) }}${{ matrix.ARCH && format(' [{0}]', matrix.ARCH) }}${{ matrix.TIMESTAMP && format(' at {0}', matrix.TIMESTAMP) }}
